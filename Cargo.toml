@@ -51,10 +51,17 @@ clap = { version = "4", features = ["derive"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 tree-sitter = "0.24"
 tree-sitter-rust = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-go = "0.23"
 nix = { version = "0.29", features = ["signal", "process"] }
 indicatif = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 toml = "0.8"
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
 
 [dependencies]
 sturdy-core = { workspace = true }
@@ -77,6 +84,11 @@ toml = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+tempfile = { workspace = true }
 
 [profile.release]
 lto = "thin"

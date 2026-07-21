@@ -67,9 +67,9 @@ its own errors into the core taxonomy at the boundary.
 | Crate | Responsibility |
 |-------|----------------|
 | **sturdy-core** | Domain model, the ReAct engine + validated state machine, hard budget enforcement (atomic + wall-clock), the shared error type. Pure and heavily tested. |
-| **sturdy-compact** | Tree-sitter parser + token compactor. Keeps code *skeletons* (signatures, doc comments) and elides function bodies to fit a context budget. |
+| **sturdy-compact** | Tree-sitter token compactor for **Rust, Python, JS, TS, Go**. Keeps code *skeletons* (signatures, doc comments) and elides function bodies to fit a context budget. |
 | **sturdy-mcp** | A native async **JSON-RPC 2.0** client for MCP over newline-delimited stdio, with concurrent request de-multiplexing. Speaks `initialize` / `tools/list` / `tools/call`. |
-| **sturdy-exec** | Tokio subprocess runner. Each child leads its own **process group**, so a timeout reaps the whole subtree (`killpg`). Includes a `cargo` **diagnostic interceptor**. |
+| **sturdy-exec** | Tokio subprocess runner. Each child leads its own **process group**, so a timeout reaps the whole subtree (`killpg`). Auto-detects and runs the project's verifier (**cargo/go/npm/pytest**) with a cargo **diagnostic interceptor**. |
 | **sturdy-ledger** | Append-only **SQLite** journal. Records each step live via the engine's observer hook and reconstructs any run byte-for-byte (`replay`). |
 | **sturdy-llm** | A `Reasoner` over any **OpenAI-compatible** chat endpoint (OpenAI/Ollama/vLLM/LM Studio) that emits ReAct JSON parsed straight into the engine's `Action` type. |
 | **sturdy** (bin) | `clap` CLI wiring it all together. |
@@ -134,9 +134,9 @@ sturdy run <goal>          Drive an agent under budgets, journaling every step
         --config <path>      load defaults from a TOML file
         --json               emit the result as JSON
 
-sturdy compact <file>          AST-aware token compaction of a Rust file
-sturdy verify [dir]  [--json]  Compile a Rust project, report diagnostics
-sturdy replay <id>   [--json]  Reconstruct a past run from the ledger
+sturdy compact <file>  [--lang L] [--json]  AST compaction (rust/python/js/ts/go)
+sturdy verify [dir]              [--json]  Build/test (cargo/go/npm/pytest, auto-detected)
+sturdy replay <id>               [--json]  Reconstruct a past run from the ledger
 sturdy ledger list   [--json]  List every recorded run
 sturdy ledger show <id> [--json]  One run's metadata, stats & full trajectory
 ```
@@ -163,7 +163,7 @@ db         = "runs.sqlite"
 
 ```sh
 cargo build            # workspace + `sturdy` binary
-cargo test --workspace # 30 tests, all green
+cargo test --workspace # 43 tests (incl. end-to-end CLI tests), all green
 ```
 
 Requires a Rust toolchain and a C compiler (Tree-sitter grammars and bundled
@@ -171,10 +171,12 @@ SQLite build native code). No network is needed to build or to run the demo path
 
 ## Status
 
-Every subsystem has a real, tested implementation, and `sturdy run` drives a live
+Every subsystem has a real, tested implementation. `sturdy run` drives a live
 model through real MCP (or built-in) tools under hard budgets, journaling each
-step for deterministic replay. Natural next steps: richer built-in tools, a
-config file, and a TUI.
+step for deterministic replay; `compact` handles five languages; `verify`
+auto-detects the project's build/test system; every command has `--json` output
+and a `sturdy.toml`-configurable, pipe-safe CLI covered by end-to-end tests.
+A TUI and richer built-in tools are the remaining niceties.
 
 ## License
 

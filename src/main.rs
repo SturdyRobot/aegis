@@ -18,12 +18,12 @@ use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Deserialize;
 
-use sturdy_compact::Compactor;
+use sturdy_compact::{Compactor, Language};
 use sturdy_core::{
     Action, Budget, Decision, HarnessError, Observation, Outcome, ReActEngine, Reasoner, Task,
     TaskId, Thought, ToolCall, ToolExecutor, Trajectory,
 };
-use sturdy_exec::{verify_rust, CommandSpec};
+use sturdy_exec::{verify, CommandSpec};
 use sturdy_ledger::Ledger;
 use sturdy_llm::{ChatReasoner, ToolSpec};
 use sturdy_mcp::McpClient;
@@ -94,11 +94,17 @@ struct RunArgs {
 
 #[derive(Parser)]
 struct CompactArgs {
-    /// Rust source file to compact.
+    /// Source file to compact (language detected from the extension).
     file: PathBuf,
     /// Only compact if the file exceeds this many estimated tokens.
     #[arg(long)]
     max_tokens: Option<usize>,
+    /// Force a language instead of detecting it (rust|python|javascript|typescript|go).
+    #[arg(long)]
+    lang: Option<String>,
+    /// Emit the result as JSON.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Parser)]
@@ -509,13 +515,22 @@ fn print_trajectory(t: &Trajectory) {
 fn cmd_compact(a: CompactArgs) -> Result<()> {
     let source = std::fs::read_to_string(&a.file)
         .with_context(|| format!("reading {}", a.file.display()))?;
-    let mut compactor = Compactor::rust()?;
+    let mut compactor = match &a.lang {
+        Some(l) => Compactor::new(parse_lang(l)?)?,
+        None => Compactor::for_path(&a.file)?,
+    };
+    let lang = compactor.language().name();
     let result = match a.max_tokens {
         Some(max) => compactor.compact_to_budget(&source, max)?,
         None => compactor.outline(&source)?,
     };
+    if a.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(());
+    }
     println!(
-        "tokens: {} → {} ({:.0}% saved) · {} bodies elided",
+        "{} · tokens: {} → {} ({:.0}% saved) · {} bodies elided",
+        lang,
         result.original_tokens,
         result.compacted_tokens,
         result.savings() * 100.0,
@@ -526,15 +541,26 @@ fn cmd_compact(a: CompactArgs) -> Result<()> {
     Ok(())
 }
 
+fn parse_lang(s: &str) -> Result<Language> {
+    Ok(match s.to_ascii_lowercase().as_str() {
+        "rust" | "rs" => Language::Rust,
+        "python" | "py" => Language::Python,
+        "javascript" | "js" => Language::JavaScript,
+        "typescript" | "ts" => Language::TypeScript,
+        "go" => Language::Go,
+        other => anyhow::bail!("unknown language `{other}` (rust|python|javascript|typescript|go)"),
+    })
+}
+
 async fn cmd_verify(a: VerifyArgs) -> Result<()> {
     let spinner = (!a.json && std::io::stderr().is_terminal()).then(|| {
         let pb = ProgressBar::new_spinner();
         pb.set_style(ProgressStyle::with_template("{spinner} {msg}").unwrap());
-        pb.set_message(format!("compiling {}…", a.dir.display()));
+        pb.set_message(format!("verifying {}…", a.dir.display()));
         pb.enable_steady_tick(Duration::from_millis(100));
         pb
     });
-    let report = verify_rust(&a.dir, Duration::from_secs(a.timeout_secs)).await?;
+    let report = verify(&a.dir, Duration::from_secs(a.timeout_secs)).await?;
     if let Some(pb) = spinner {
         pb.finish_and_clear();
     }
@@ -551,8 +577,9 @@ async fn cmd_verify(a: VerifyArgs) -> Result<()> {
         println!("⏱ verification timed out");
     }
     println!(
-        "{} · {} error(s), {} warning(s)",
+        "{} · {} · {} error(s), {} warning(s)",
         if report.ok { "✔ ok" } else { "✘ failed" },
+        report.system,
         report.errors,
         report.warnings
     );

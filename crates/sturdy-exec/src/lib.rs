@@ -285,13 +285,15 @@ pub fn parse_cargo_json(stream: &str) -> Vec<Diagnostic> {
 /// The verdict of a verification run.
 #[derive(Debug, Clone, Serialize)]
 pub struct VerifyReport {
+    /// Which build/test system ran (`cargo`, `go`, `npm`, `pytest`, `none`).
+    pub system: String,
     pub ok: bool,
     pub errors: usize,
     pub warnings: usize,
     pub timed_out: bool,
     pub diagnostics: Vec<Diagnostic>,
-    /// A cargo-level failure reason when the build couldn't even start (e.g. no
-    /// `Cargo.toml`), for which there are no compiler diagnostics to show.
+    /// A system-level failure reason with no structured diagnostics (e.g. no
+    /// project manifest, or the tool isn't installed).
     pub failure: Option<String>,
 }
 
@@ -327,6 +329,7 @@ pub async fn verify_rust(cwd: impl Into<PathBuf>, timeout: Duration) -> Result<V
     };
 
     Ok(VerifyReport {
+        system: "cargo".into(),
         ok,
         errors,
         warnings,
@@ -334,6 +337,143 @@ pub async fn verify_rust(cwd: impl Into<PathBuf>, timeout: Duration) -> Result<V
         diagnostics,
         failure,
     })
+}
+
+/// The build/test systems `verify` can drive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verifier {
+    Cargo,
+    Go,
+    Npm,
+    Pytest,
+}
+
+impl Verifier {
+    pub fn name(self) -> &'static str {
+        match self {
+            Verifier::Cargo => "cargo",
+            Verifier::Go => "go",
+            Verifier::Npm => "npm",
+            Verifier::Pytest => "pytest",
+        }
+    }
+
+    /// Marker files that identify the project (checked in priority order).
+    fn markers(self) -> &'static [&'static str] {
+        match self {
+            Verifier::Cargo => &["Cargo.toml"],
+            Verifier::Go => &["go.mod"],
+            Verifier::Npm => &["package.json"],
+            Verifier::Pytest => &["pyproject.toml", "setup.py", "pytest.ini", "tox.ini"],
+        }
+    }
+
+    /// The command run to check the project.
+    fn command(self) -> (&'static str, &'static [&'static str]) {
+        match self {
+            Verifier::Cargo => ("cargo", &["build", "--message-format=json"]),
+            Verifier::Go => ("go", &["build", "./..."]),
+            Verifier::Npm => ("npm", &["test"]),
+            Verifier::Pytest => ("pytest", &["-q"]),
+        }
+    }
+
+    /// Detect the project type by scanning `dir` for marker files.
+    pub fn detect(dir: &std::path::Path) -> Option<Verifier> {
+        [
+            Verifier::Cargo,
+            Verifier::Go,
+            Verifier::Npm,
+            Verifier::Pytest,
+        ]
+        .into_iter()
+        .find(|v| v.markers().iter().any(|m| dir.join(m).exists()))
+    }
+}
+
+/// Auto-detect the project's build/test system and run it, returning a structured
+/// pass/fail report. Rust gets rich cargo diagnostics; the others are exit-code
+/// based with the failing output attached.
+pub async fn verify(cwd: impl Into<PathBuf>, timeout: Duration) -> Result<VerifyReport> {
+    let cwd = cwd.into();
+    match Verifier::detect(&cwd) {
+        Some(Verifier::Cargo) => verify_rust(cwd, timeout).await,
+        Some(v) => verify_generic(v, &cwd, timeout).await,
+        None => Ok(VerifyReport {
+            system: "none".into(),
+            ok: false,
+            errors: 0,
+            warnings: 0,
+            timed_out: false,
+            diagnostics: Vec::new(),
+            failure: Some(
+                "no recognized project here (looked for Cargo.toml, go.mod, package.json, pyproject.toml)"
+                    .into(),
+            ),
+        }),
+    }
+}
+
+async fn verify_generic(
+    v: Verifier,
+    cwd: &std::path::Path,
+    timeout: Duration,
+) -> Result<VerifyReport> {
+    let (program, args) = v.command();
+    let spec = CommandSpec::new(program)
+        .args(args.iter().copied())
+        .cwd(cwd)
+        .timeout(timeout);
+    let out = match run(&spec).await {
+        Ok(o) => o,
+        // The tool isn't installed — report it rather than erroring out.
+        Err(ExecError::Spawn { program, .. }) => {
+            return Ok(VerifyReport {
+                system: v.name().into(),
+                ok: false,
+                errors: 0,
+                warnings: 0,
+                timed_out: false,
+                diagnostics: Vec::new(),
+                failure: Some(format!(
+                    "could not run `{program}` — is it installed and on PATH?"
+                )),
+            })
+        }
+        Err(e) => return Err(e),
+    };
+
+    let ok = out.success();
+    let failure = if ok {
+        None
+    } else if out.timed_out {
+        Some(format!("`{}` timed out", v.name()))
+    } else {
+        // Prefer stderr, fall back to stdout; keep the last few lines (the summary).
+        let text = if out.stderr.trim().is_empty() {
+            &out.stdout
+        } else {
+            &out.stderr
+        };
+        Some(last_lines(text, 20))
+    };
+
+    Ok(VerifyReport {
+        system: v.name().into(),
+        ok,
+        errors: usize::from(!ok),
+        warnings: 0,
+        timed_out: out.timed_out,
+        diagnostics: Vec::new(),
+        failure,
+    })
+}
+
+/// The last `n` non-empty lines of `text`, joined — a build tool's summary.
+fn last_lines(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let start = lines.len().saturating_sub(n);
+    lines[start..].join("\n")
 }
 
 #[cfg(test)]
@@ -416,6 +556,31 @@ mod tests {
             report.failure.is_some(),
             "should report a cargo-level reason"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn verifier_detects_by_marker_in_priority_order() {
+        let dir = std::env::temp_dir().join(format!("sturdy-detect-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(Verifier::detect(&dir), None);
+        std::fs::write(dir.join("go.mod"), "module x\n").unwrap();
+        assert_eq!(Verifier::detect(&dir), Some(Verifier::Go));
+        std::fs::write(dir.join("Cargo.toml"), "[package]\n").unwrap();
+        assert_eq!(Verifier::detect(&dir), Some(Verifier::Cargo)); // cargo wins
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn verify_reports_no_recognized_project() {
+        let dir = std::env::temp_dir().join(format!("sturdy-noproj-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let r = verify(&dir, Duration::from_secs(30)).await.unwrap();
+        assert_eq!(r.system, "none");
+        assert!(!r.ok);
+        assert!(r.failure.is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
