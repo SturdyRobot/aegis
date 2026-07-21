@@ -71,6 +71,7 @@ its own errors into the core taxonomy at the boundary.
 | **sturdy-mcp** | A native async **JSON-RPC 2.0** client for MCP over newline-delimited stdio, with concurrent request de-multiplexing. Speaks `initialize` / `tools/list` / `tools/call`. |
 | **sturdy-exec** | Tokio subprocess runner. Each child leads its own **process group**, so a timeout reaps the whole subtree (`killpg`). Includes a `cargo` **diagnostic interceptor**. |
 | **sturdy-ledger** | Append-only **SQLite** journal. Records each step live via the engine's observer hook and reconstructs any run byte-for-byte (`replay`). |
+| **sturdy-llm** | A `Reasoner` over any **OpenAI-compatible** chat endpoint (OpenAI/Ollama/vLLM/LM Studio) that emits ReAct JSON parsed straight into the engine's `Action` type. |
 | **sturdy** (bin) | `clap` CLI wiring it all together. |
 
 ### The ReAct engine
@@ -90,14 +91,42 @@ trait Reasoner {
 }
 ```
 
-The bundled CLI ships a deterministic demo `Reasoner` so the whole pipeline
-(budgets → state machine → tools → ledger → replay) runs offline. Swap it for an
-Ollama/API client and the rest of the harness is unchanged.
+`sturdy-llm` ships a `ChatReasoner` implementing this against any
+OpenAI-compatible endpoint. With no `--model`, the CLI uses a deterministic demo
+policy so the whole pipeline runs offline.
+
+## Driving a real model
+
+`--model` points the agent at any OpenAI-compatible chat endpoint — **Ollama,
+OpenAI, vLLM, LM Studio, llama.cpp**:
+
+```sh
+# Local Ollama (default base URL), built-in shell tool:
+sturdy run "what version of cargo is installed?" --model llama3.1
+
+# OpenAI (key read from an env var, never the command line):
+OPENAI_API_KEY=sk-... \
+  sturdy run "summarize the crate layout" \
+  --model gpt-4o-mini --api-base https://api.openai.com/v1 --api-key-env OPENAI_API_KEY
+
+# Give the agent a real MCP server as its tool source:
+sturdy run "list the Rust files and read main.rs" \
+  --model llama3.1 \
+  --mcp "npx -y @modelcontextprotocol/server-filesystem ."
+```
+
+The model is prompted to emit a strict ReAct JSON object each turn; its reported
+token usage is charged against the budget, and every step is journaled for
+replay just like the demo path.
 
 ## CLI
 
 ```
 sturdy run <goal>          Drive an agent under budgets, journaling every step
+        --model NAME         LLM to drive the agent (omit → offline demo policy)
+        --api-base URL       OpenAI-compatible base URL (default: local Ollama)
+        --api-key-env VAR    read the API key from this env var
+        --mcp "CMD ARGS"     launch an MCP server as the tool source
         --max-tokens N       token ceiling (default 100k)
         --max-steps N        step ceiling (default 12)
         --max-secs N         wall-clock ceiling (default 120)
@@ -114,19 +143,19 @@ sturdy ledger list         List every recorded run
 ## Build & test
 
 ```sh
-cargo build           # workspace + `sturdy` binary
-cargo test --workspace # 20 tests, all green
+cargo build            # workspace + `sturdy` binary
+cargo test --workspace # 29 tests, all green
 ```
 
 Requires a Rust toolchain and a C compiler (Tree-sitter grammars and bundled
-SQLite build native code). No network is needed for the demo.
+SQLite build native code). No network is needed to build or to run the demo path.
 
 ## Status
 
-This is a working foundation with real, tested implementations of every
-subsystem. The reasoner is currently a deterministic demo policy; the model
-integration, an MCP-tool bridge into the engine, and a richer TUI are the next
-layers to build on top of it.
+Every subsystem has a real, tested implementation, and `sturdy run` drives a live
+model through real MCP (or built-in) tools under hard budgets, journaling each
+step for deterministic replay. Natural next steps: richer built-in tools, a
+config file, and a TUI.
 
 ## License
 

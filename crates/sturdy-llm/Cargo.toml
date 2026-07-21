@@ -1,6 +1,6 @@
 [package]
-name = "sturdy-mcp"
-description = "Native Model Context Protocol (MCP) JSON-RPC 2.0 client over stdio."
+name = "sturdy-llm"
+description = "OpenAI-compatible chat reasoner (OpenAI / Ollama / vLLM / LM Studio) driving the ReAct loop."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,12 +8,12 @@ repository.workspace = true
 
 [dependencies]
 sturdy-core = { workspace = true }
-tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
 async-trait = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -22,6 +22,8 @@ use sturdy_core::{
 };
 use sturdy_exec::{verify_rust, CommandSpec};
 use sturdy_ledger::Ledger;
+use sturdy_llm::{ChatReasoner, ToolSpec};
+use sturdy_mcp::McpClient;
 
 /// A deterministic AI agent execution & verification harness.
 #[derive(Parser)]
@@ -64,6 +66,19 @@ struct RunArgs {
     /// Wall-clock budget in seconds.
     #[arg(long, default_value_t = 120)]
     max_secs: u64,
+    /// LLM model to drive the agent. If omitted, an offline demo policy is used.
+    #[arg(long)]
+    model: Option<String>,
+    /// OpenAI-compatible API base URL (defaults to a local Ollama server).
+    #[arg(long, default_value = "http://localhost:11434/v1")]
+    api_base: String,
+    /// Read the API key from this environment variable (e.g. OPENAI_API_KEY).
+    #[arg(long)]
+    api_key_env: Option<String>,
+    /// Launch an MCP server as the tool source, e.g.
+    /// --mcp "npx -y @modelcontextprotocol/server-filesystem .".
+    #[arg(long)]
+    mcp: Option<String>,
 }
 
 #[derive(Parser)]
@@ -205,6 +220,22 @@ impl ToolExecutor for ShellTool {
     }
 }
 
+/// The schema advertised to the model for the built-in `shell` tool.
+fn shell_tool_spec() -> ToolSpec {
+    ToolSpec::new(
+        "shell",
+        "Run a program in the workspace and capture its output.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "cmd": { "type": "string", "description": "the program to run" },
+                "args": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["cmd"]
+        }),
+    )
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -236,15 +267,66 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
     let task = Task::new(a.goal.clone()).in_workspace(a.cwd.display().to_string());
     ledger.begin_run(&task)?;
 
-    let engine = ReActEngine::new(
-        Arc::new(DemoReasoner),
-        Arc::new(ShellTool {
-            cwd: a.cwd,
-            timeout: Duration::from_secs(30),
-        }),
-        budget.clone(),
-    )
-    .with_observer(ledger.observer());
+    // Tool source: an MCP server if requested, otherwise the built-in shell tool.
+    let (tool_specs, tools): (Vec<ToolSpec>, Arc<dyn ToolExecutor>) = match &a.mcp {
+        Some(cmd) => {
+            let parts: Vec<String> = cmd.split_whitespace().map(String::from).collect();
+            let program = parts
+                .first()
+                .cloned()
+                .context("--mcp needs a command to launch")?;
+            let args: Vec<&str> = parts[1..].iter().map(String::as_str).collect();
+            let client = McpClient::connect_stdio(&program, &args)
+                .await
+                .context("launching MCP server")?;
+            let info = client
+                .initialize("sturdy")
+                .await
+                .context("MCP initialize")?;
+            let mcp_tools = client.list_tools().await.context("MCP tools/list")?;
+            println!(
+                "  mcp: {} v{} · {} tool(s)",
+                info.name,
+                info.version,
+                mcp_tools.len()
+            );
+            let specs = mcp_tools
+                .iter()
+                .map(|t| {
+                    ToolSpec::new(
+                        t.name.clone(),
+                        t.description.clone().unwrap_or_default(),
+                        t.input_schema.clone(),
+                    )
+                })
+                .collect();
+            (specs, Arc::new(client))
+        }
+        None => (
+            vec![shell_tool_spec()],
+            Arc::new(ShellTool {
+                cwd: a.cwd.clone(),
+                timeout: Duration::from_secs(30),
+            }),
+        ),
+    };
+
+    // Reasoner: a real model if --model is given, else the offline demo policy.
+    let reasoner: Arc<dyn Reasoner> = match &a.model {
+        Some(model) => {
+            let key = a.api_key_env.as_ref().and_then(|e| std::env::var(e).ok());
+            println!("  model: {model} @ {}", a.api_base);
+            Arc::new(ChatReasoner::new(
+                a.api_base.clone(),
+                model.clone(),
+                key,
+                tool_specs,
+            ))
+        }
+        None => Arc::new(DemoReasoner),
+    };
+
+    let engine = ReActEngine::new(reasoner, tools, budget.clone()).with_observer(ledger.observer());
 
     println!("▶ run {}\n  goal: {}\n", task.id, task.goal);
     let (outcome, trajectory) = engine.run(&task).await;

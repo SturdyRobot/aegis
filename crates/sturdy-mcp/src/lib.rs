@@ -259,8 +259,9 @@ pub const PROTOCOL_VERSION: &str = "2024-11-05";
 /// A connected MCP client.
 pub struct McpClient {
     rpc: RpcClient,
-    /// Kept alive so the server subprocess is killed on drop.
-    _child: Option<Child>,
+    /// Kept alive so the server subprocess is killed on drop. Behind a `Mutex`
+    /// so the whole client is `Sync` and can be shared as a `dyn ToolExecutor`.
+    _child: Mutex<Option<Child>>,
 }
 
 impl McpClient {
@@ -271,7 +272,7 @@ impl McpClient {
     ) -> Self {
         McpClient {
             rpc: RpcClient::new(writer, reader),
-            _child: None,
+            _child: Mutex::new(None),
         }
     }
 
@@ -303,7 +304,7 @@ impl McpClient {
             .ok_or_else(|| McpError::Protocol("server has no stdout".into()))?;
         Ok(McpClient {
             rpc: RpcClient::new(stdin, stdout),
-            _child: Some(child),
+            _child: Mutex::new(Some(child)),
         })
     }
 
@@ -375,6 +376,27 @@ impl McpClient {
             text,
             is_error,
             raw: result,
+        })
+    }
+}
+
+/// Bridge an MCP server into the engine's tool interface: a `tools/call` becomes
+/// a tool `Observation`. A tool-level error (`isError`) is surfaced as an *error
+/// observation* the agent can react to, not a fatal harness error.
+#[async_trait::async_trait]
+impl sturdy_core::ToolExecutor for McpClient {
+    async fn execute(
+        &self,
+        call: &sturdy_core::ToolCall,
+    ) -> sturdy_core::Result<sturdy_core::Observation> {
+        let result = self
+            .call_tool(&call.name, call.arguments.clone())
+            .await
+            .map_err(sturdy_core::HarnessError::from)?;
+        Ok(if result.is_error {
+            sturdy_core::Observation::error(result.text)
+        } else {
+            sturdy_core::Observation::ok(result.text)
         })
     }
 }
