@@ -286,7 +286,10 @@ impl McpClient {
 
     /// List the tools the server exposes.
     pub async fn list_tools(&self) -> Result<Vec<McpTool>> {
-        let result = self.rpc.request("tools/list", serde_json::json!({})).await?;
+        let result = self
+            .rpc
+            .request("tools/list", serde_json::json!({}))
+            .await?;
         let tools = result
             .get("tools")
             .cloned()
@@ -358,7 +361,10 @@ mod tests {
                         ]
                     }),
                     "tools/call" => {
-                        let tool = req.pointer("/params/name").and_then(|n| n.as_str()).unwrap_or("");
+                        let tool = req
+                            .pointer("/params/name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or("");
                         serde_json::json!({
                             "content": [ { "type": "text", "text": format!("called {tool}") } ],
                             "isError": false
@@ -414,7 +420,10 @@ mod tests {
         for i in 0..8 {
             let c = client.clone();
             handles.push(tokio::spawn(async move {
-                c.call_tool(&format!("tool{i}"), Value::Null).await.unwrap().text
+                c.call_tool(&format!("tool{i}"), Value::Null)
+                    .await
+                    .unwrap()
+                    .text
             }));
         }
         for (i, h) in handles.into_iter().enumerate() {

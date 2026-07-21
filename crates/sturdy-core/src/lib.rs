@@ -12,12 +12,8 @@ pub mod react;
 
 pub use budget::{Budget, BudgetTracker};
 pub use error::{BudgetKind, HarnessError, Result};
-pub use model::{
-    Action, Observation, Outcome, Step, Task, TaskId, Thought, ToolCall, Trajectory,
-};
-pub use react::{
-    Decision, Phase, ReActEngine, Reasoner, StateMachine, StepObserver, ToolExecutor,
-};
+pub use model::{Action, Observation, Outcome, Step, Task, TaskId, Thought, ToolCall, Trajectory};
+pub use react::{Decision, Phase, ReActEngine, Reasoner, StateMachine, StepObserver, ToolExecutor};
 
 #[cfg(test)]
 mod tests {
@@ -159,7 +155,11 @@ mod tests {
             max_steps: 4,
             wall_clock: Duration::from_secs(60),
         };
-        let engine = ReActEngine::new(Arc::new(NeverFinishes), Arc::new(EchoTool), budget.tracker());
+        let engine = ReActEngine::new(
+            Arc::new(NeverFinishes),
+            Arc::new(EchoTool),
+            budget.tracker(),
+        );
         let (outcome, traj) = engine.run(&Task::new("loop forever")).await;
 
         assert!(matches!(outcome, Outcome::BudgetExhausted { .. }));

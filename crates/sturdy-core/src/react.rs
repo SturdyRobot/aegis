@@ -193,10 +193,7 @@ impl ReActEngine {
                     (None, Some(answer.clone()))
                 }
                 Action::Tool(call) => {
-                    let obs = self
-                        .budget
-                        .run_within(self.tools.execute(call))
-                        .await?;
+                    let obs = self.budget.run_within(self.tools.execute(call)).await?;
                     sm.advance(Phase::Observe)?;
                     (Some(obs), None)
                 }

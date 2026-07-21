@@ -177,7 +177,11 @@ impl ToolExecutor for ShellTool {
                     .ok_or_else(|| HarnessError::tool("shell", "missing `cmd`"))?;
                 let args: Vec<String> = call.arguments["args"]
                     .as_array()
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 let spec = CommandSpec::new(cmd)
                     .args(args)
@@ -259,7 +263,11 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
         budget.tokens_used(),
         budget.budget().wall_clock.as_millis() - budget.time_remaining().as_millis()
     );
-    println!("  replay with: sturdy replay {} --db {}", task.id, a.db.display());
+    println!(
+        "  replay with: sturdy replay {} --db {}",
+        task.id,
+        a.db.display()
+    );
     Ok(())
 }
 
@@ -309,7 +317,12 @@ async fn cmd_verify(a: VerifyArgs) -> Result<()> {
         report.errors,
         report.warnings
     );
-    for d in report.diagnostics.iter().filter(|d| d.level == "error").take(10) {
+    for d in report
+        .diagnostics
+        .iter()
+        .filter(|d| d.level == "error")
+        .take(10)
+    {
         match (&d.file, d.line) {
             (Some(f), Some(l)) => println!("  {}:{} — {}", f, l, truncate(&d.message, 160)),
             _ => println!("  {}", truncate(&d.message, 160)),

@@ -1,5 +1,8 @@
 # SturdyHarness
 
+[![CI](https://github.com/SturdyRobot/sturdy-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/SturdyRobot/sturdy-harness/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A deterministic AI-agent execution and verification harness, written in Rust.
 
 SturdyHarness sits between an LLM (frontier API or local Ollama) and a real
@@ -24,6 +27,35 @@ $ sturdy run "assess the toolchain"
   [2] ⏹ finish: Toolchain verified.
 ✔ finished · 3 steps · 54 tokens · 35ms
   replay with: sturdy replay 442a9c30-… 
+```
+
+## Install
+
+**Prerequisites:** a recent stable [Rust toolchain](https://rustup.rs) and a C
+compiler (`cc`/`clang` on macOS/Linux, MSVC on Windows) — the Tree-sitter
+grammar and bundled SQLite build a little native code. No network is required at
+runtime.
+
+Install the `sturdy` binary straight from GitHub:
+
+```sh
+cargo install --git https://github.com/SturdyRobot/sturdy-harness
+```
+
+Or clone and build from source:
+
+```sh
+git clone https://github.com/SturdyRobot/sturdy-harness
+cd sturdy-harness
+cargo install --path .        # installs `sturdy` into ~/.cargo/bin
+# or just: cargo build --release   → target/release/sturdy
+```
+
+Then:
+
+```sh
+sturdy --help
+sturdy run "assess the toolchain"
 ```
 
 ## Architecture

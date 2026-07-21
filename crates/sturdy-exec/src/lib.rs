@@ -240,13 +240,16 @@ pub fn parse_cargo_json(stream: &str) -> Vec<Diagnostic> {
             // Cargo repeats the top-level summary as level "error"/"warning"
             // with an empty span list — those carry no location, which is fine.
             let text = msg.get("message")?.as_str()?.to_string();
-            let span = msg
-                .get("spans")
-                .and_then(|s| s.as_array())
-                .and_then(|arr| arr.iter().find(|s| s.get("is_primary") == Some(&serde_json::Value::Bool(true))).or_else(|| arr.first()));
+            let span = msg.get("spans").and_then(|s| s.as_array()).and_then(|arr| {
+                arr.iter()
+                    .find(|s| s.get("is_primary") == Some(&serde_json::Value::Bool(true)))
+                    .or_else(|| arr.first())
+            });
             let (file, line, column) = match span {
                 Some(s) => (
-                    s.get("file_name").and_then(|f| f.as_str()).map(String::from),
+                    s.get("file_name")
+                        .and_then(|f| f.as_str())
+                        .map(String::from),
                     s.get("line_start").and_then(|l| l.as_u64()),
                     s.get("column_start").and_then(|c| c.as_u64()),
                 ),
@@ -320,16 +323,17 @@ mod tests {
         let start = std::time::Instant::now();
         // The shell forks a child `sleep`; killing only the shell would leak it.
         // Killing the group reaps both, and we return right at the deadline.
-        let out = run(
-            &CommandSpec::new("sh")
-                .args(["-c", "sleep 30 & sleep 30"])
-                .timeout(Duration::from_millis(250)),
-        )
+        let out = run(&CommandSpec::new("sh")
+            .args(["-c", "sleep 30 & sleep 30"])
+            .timeout(Duration::from_millis(250)))
         .await
         .unwrap();
         assert!(out.timed_out);
         assert!(!out.success());
-        assert!(start.elapsed() < Duration::from_secs(3), "did not return promptly");
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "did not return promptly"
+        );
     }
 
     #[test]

@@ -78,7 +78,10 @@ impl Compactor {
     /// Produce a structural outline: every signature kept, every function body
     /// replaced with a one-line placeholder recording how much was elided.
     pub fn outline(&mut self, source: &str) -> Result<CompactResult> {
-        let tree = self.parser.parse(source, None).ok_or(CompactError::ParseFailed)?;
+        let tree = self
+            .parser
+            .parse(source, None)
+            .ok_or(CompactError::ParseFailed)?;
         let mut edits: Vec<(usize, usize, String)> = Vec::new();
         collect_body_elisions(tree.root_node(), source, &mut edits);
         edits.sort_by_key(|e| e.0);

@@ -106,12 +106,7 @@ impl Ledger {
         conn.execute(
             "INSERT OR REPLACE INTO runs (task_id, goal, workspace, started_ms, status)
              VALUES (?1, ?2, ?3, ?4, 'running')",
-            rusqlite::params![
-                task.id.to_string(),
-                task.goal,
-                task.workspace,
-                now_ms()
-            ],
+            rusqlite::params![task.id.to_string(), task.goal, task.workspace, now_ms()],
         )?;
         Ok(())
     }
@@ -281,7 +276,10 @@ mod tests {
             Step {
                 index: 0,
                 thought: Thought("inspect the tree".into()),
-                action: Action::Tool(ToolCall::new("read_file", serde_json::json!({"path":"a.rs"}))),
+                action: Action::Tool(ToolCall::new(
+                    "read_file",
+                    serde_json::json!({"path":"a.rs"}),
+                )),
                 observation: Some(Observation::ok("fn main() {}")),
                 tokens: 42,
                 elapsed_ms: 12,
@@ -289,7 +287,9 @@ mod tests {
             Step {
                 index: 1,
                 thought: Thought("done".into()),
-                action: Action::Finish { answer: "ok".into() },
+                action: Action::Finish {
+                    answer: "ok".into(),
+                },
                 observation: None,
                 tokens: 7,
                 elapsed_ms: 3,
@@ -308,7 +308,12 @@ mod tests {
             ledger.record_step(task.id, s).unwrap();
         }
         ledger
-            .finalize(task.id, &Outcome::Finished { answer: "ok".into() })
+            .finalize(
+                task.id,
+                &Outcome::Finished {
+                    answer: "ok".into(),
+                },
+            )
             .unwrap();
 
         let replayed = ledger.replay(task.id).unwrap();
