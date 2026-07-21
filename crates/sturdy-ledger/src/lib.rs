@@ -88,7 +88,11 @@ impl Ledger {
     }
 
     fn init(conn: Connection) -> Result<Self> {
-        conn.pragma_update(None, "journal_mode", "WAL").ok();
+        // WAL is a no-op for `:memory:` (harmless); on a file DB a failure is
+        // worth knowing about rather than swallowing.
+        if let Err(e) = conn.pragma_update(None, "journal_mode", "WAL") {
+            tracing::warn!(error = %e, "could not enable WAL journal mode");
+        }
         conn.pragma_update(None, "foreign_keys", "ON").ok();
         conn.execute_batch(SCHEMA)?;
         Ok(Ledger {
@@ -112,6 +116,11 @@ impl Ledger {
     }
 
     /// Append one finalized step.
+    ///
+    /// If `begin_run` was never called for this task (e.g. an observer wired up
+    /// without it), a placeholder run row is created so the foreign key holds and
+    /// the step is never silently lost — the "crashed run still leaves a trail"
+    /// guarantee. A later `begin_run` overwrites the placeholder.
     pub fn record_step(&self, task_id: TaskId, step: &Step) -> Result<()> {
         let action = serde_json::to_string(&step.action)?;
         let observation = match &step.observation {
@@ -119,6 +128,11 @@ impl Ledger {
             None => None,
         };
         let conn = self.lock()?;
+        conn.execute(
+            "INSERT OR IGNORE INTO runs (task_id, goal, started_ms, status)
+             VALUES (?1, '(recovered)', ?2, 'running')",
+            rusqlite::params![task_id.to_string(), now_ms()],
+        )?;
         conn.execute(
             "INSERT OR REPLACE INTO steps
              (task_id, idx, thought, action, observation, tokens, elapsed_ms)
@@ -144,10 +158,13 @@ impl Ledger {
             Outcome::Failed { reason } => ("failed", Some(reason.clone())),
         };
         let conn = self.lock()?;
-        conn.execute(
+        let affected = conn.execute(
             "UPDATE runs SET status = ?2, answer = ?3, ended_ms = ?4 WHERE task_id = ?1",
             rusqlite::params![task_id.to_string(), status, answer, now_ms()],
         )?;
+        if affected == 0 {
+            return Err(LedgerError::NotFound(task_id));
+        }
         Ok(())
     }
 

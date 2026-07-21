@@ -317,6 +317,10 @@ async fn cmd_verify(a: VerifyArgs) -> Result<()> {
         report.errors,
         report.warnings
     );
+    if let Some(reason) = &report.failure {
+        // A cargo-level failure with no compiler diagnostics (e.g. no Cargo.toml).
+        println!("  {}", truncate(reason, 200));
+    }
     for d in report
         .diagnostics
         .iter()

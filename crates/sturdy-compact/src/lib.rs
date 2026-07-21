@@ -134,11 +134,12 @@ fn collect_body_elisions(node: Node, source: &str, edits: &mut Vec<(usize, usize
             if let Some(body) = child.child_by_field_name("body") {
                 let span = &source[body.start_byte()..body.end_byte()];
                 let lines = span.lines().count().max(1);
-                edits.push((
-                    body.start_byte(),
-                    body.end_byte(),
-                    format!("{{ /* {lines} lines elided */ }}"),
-                ));
+                let replacement = format!("{{ /* {lines} lines elided */ }}");
+                // Only elide when it actually shrinks the source — a trivial body
+                // like `{ 1 }` is shorter than the placeholder, so leave it.
+                if replacement.len() < span.len() {
+                    edits.push((body.start_byte(), body.end_byte(), replacement));
+                }
             }
             // Do not recurse into the function; its body is gone.
         } else {
@@ -216,5 +217,15 @@ pub fn top_level(a: i32, b: i32) -> i32 {
         let r = c.compact_to_budget(SAMPLE, 5).unwrap();
         assert!(r.elided_bodies > 0);
         assert!(r.savings() > 0.0);
+    }
+
+    #[test]
+    fn compaction_never_grows_the_source() {
+        let mut c = Compactor::rust().unwrap();
+        // Trivial bodies whose placeholder would be longer are left intact.
+        let tiny = "fn a() { 1 }\nfn b() -> i32 { 2 }\n";
+        let r = c.outline(tiny).unwrap();
+        assert!(r.compacted_tokens <= r.original_tokens);
+        assert_eq!(r.elided_bodies, 0);
     }
 }

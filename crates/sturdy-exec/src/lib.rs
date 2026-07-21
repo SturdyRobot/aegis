@@ -126,6 +126,24 @@ async fn drain(mut r: impl AsyncReadExt + Unpin) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
+/// Await an output-reader task with a hard upper bound. The caller has already
+/// closed the pipes (killed the group), so this resolves at once in practice;
+/// the timeout only exists so a pathological reader can never hang the runner.
+async fn join_reader(
+    program: &str,
+    task: tokio::task::JoinHandle<std::io::Result<String>>,
+) -> Result<String> {
+    match tokio::time::timeout(Duration::from_secs(10), task).await {
+        Ok(Ok(Ok(s))) => Ok(s),
+        Ok(Ok(Err(source))) => Err(ExecError::Io {
+            program: program.to_string(),
+            source,
+        }),
+        Ok(Err(_join)) => Err(ExecError::ReaderPanicked),
+        Err(_timeout) => Ok(String::new()),
+    }
+}
+
 /// Run `spec` to completion or until its timeout, capturing stdout/stderr. On
 /// timeout the whole process group is killed and `timed_out` is set.
 pub async fn run(spec: &CommandSpec) -> Result<ProcessOutput> {
@@ -173,37 +191,35 @@ pub async fn run(spec: &CommandSpec) -> Result<ProcessOutput> {
         }
     });
 
-    let (code, timed_out) = match tokio::time::timeout(spec.timeout, child.wait()).await {
-        Ok(Ok(status)) => (status.code(), false),
+    let mut code = None;
+    let timed_out = match tokio::time::timeout(spec.timeout, child.wait()).await {
+        Ok(Ok(status)) => {
+            code = status.code();
+            false
+        }
         Ok(Err(source)) => {
             return Err(ExecError::Io {
                 program: spec.program.clone(),
                 source,
             })
         }
-        Err(_) => {
-            if let Some(p) = pid {
-                kill_group(p);
-            }
-            let _ = child.wait().await; // reap the leader
-            (None, true)
-        }
+        Err(_) => true,
     };
 
-    let stdout = out_task
-        .await
-        .map_err(|_| ExecError::ReaderPanicked)?
-        .map_err(|source| ExecError::Io {
-            program: spec.program.clone(),
-            source,
-        })?;
-    let stderr = err_task
-        .await
-        .map_err(|_| ExecError::ReaderPanicked)?
-        .map_err(|source| ExecError::Io {
-            program: spec.program.clone(),
-            source,
-        })?;
+    // Whether it finished cleanly or timed out, tear down the whole subtree so no
+    // forked/backgrounded child is left running or holding the output pipes open.
+    // `killpg` reaps the group on Unix; `start_kill` covers the leader everywhere.
+    // (This is why a `sh -c '... & echo'` can't hang the reader below.)
+    if let Some(p) = pid {
+        kill_group(p);
+    }
+    let _ = child.start_kill();
+    let _ = child.wait().await;
+
+    // Drain with a hard safety bound — the pipes are closed by now, so this
+    // returns immediately; the timeout is a last-resort guard against ever hanging.
+    let stdout = join_reader(&spec.program, out_task).await?;
+    let stderr = join_reader(&spec.program, err_task).await?;
 
     Ok(ProcessOutput {
         code,
@@ -274,10 +290,16 @@ pub struct VerifyReport {
     pub warnings: usize,
     pub timed_out: bool,
     pub diagnostics: Vec<Diagnostic>,
+    /// A cargo-level failure reason when the build couldn't even start (e.g. no
+    /// `Cargo.toml`), for which there are no compiler diagnostics to show.
+    pub failure: Option<String>,
 }
 
 /// Compile a Rust project and return a structured pass/fail report. This is the
 /// verification loop the agent runs after every edit.
+///
+/// `ok` requires cargo to exit 0 — so a directory that isn't a cargo project (no
+/// `Cargo.toml`) is correctly reported as a failure, not a vacuous success.
 pub async fn verify_rust(cwd: impl Into<PathBuf>, timeout: Duration) -> Result<VerifyReport> {
     let spec = CommandSpec::new("cargo")
         .args(["build", "--message-format=json"])
@@ -287,12 +309,30 @@ pub async fn verify_rust(cwd: impl Into<PathBuf>, timeout: Duration) -> Result<V
     let diagnostics = parse_cargo_json(&out.stdout);
     let errors = diagnostics.iter().filter(|d| d.level == "error").count();
     let warnings = diagnostics.iter().filter(|d| d.level == "warning").count();
+    let ok = out.code == Some(0) && errors == 0 && !out.timed_out;
+
+    // A non-zero exit with no compiler errors means cargo itself failed (missing
+    // manifest, resolver error, …); surface the first lines of its stderr.
+    let failure = if !ok && errors == 0 && !out.timed_out {
+        let reason = out
+            .stderr
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or("cargo build failed")
+            .to_string();
+        Some(reason)
+    } else {
+        None
+    };
+
     Ok(VerifyReport {
-        ok: errors == 0 && !out.timed_out,
+        ok,
         errors,
         warnings,
         timed_out: out.timed_out,
         diagnostics,
+        failure,
     })
 }
 
@@ -336,6 +376,24 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn does_not_hang_when_a_backgrounded_child_holds_the_pipe() {
+        // The shell exits instantly but leaves a `sleep` holding stdout open.
+        // Without tearing down the group, the drain would block for ~30s.
+        let start = std::time::Instant::now();
+        let out = run(&CommandSpec::new("sh")
+            .args(["-c", "sleep 30 & echo hi"])
+            .timeout(Duration::from_secs(60)))
+        .await
+        .unwrap();
+        assert_eq!(out.code, Some(0));
+        assert_eq!(out.stdout.trim(), "hi");
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "hung draining a backgrounded child's pipe"
+        );
+    }
+
     #[test]
     fn parses_cargo_compiler_message() {
         let line = r#"{"reason":"compiler-message","message":{"level":"error","message":"cannot find value `x`","spans":[{"is_primary":true,"file_name":"src/lib.rs","line_start":10,"column_start":5}]}}"#;
@@ -345,5 +403,19 @@ mod tests {
         assert_eq!(diags[0].level, "error");
         assert_eq!(diags[0].file.as_deref(), Some("src/lib.rs"));
         assert_eq!(diags[0].line, Some(10));
+    }
+
+    #[tokio::test]
+    async fn verify_flags_a_directory_that_is_not_a_cargo_project() {
+        // A build that can't even start (no Cargo.toml) must not read as "ok".
+        let dir = std::env::temp_dir().join(format!("sturdy-notcargo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let report = verify_rust(&dir, Duration::from_secs(60)).await.unwrap();
+        assert!(!report.ok, "an empty directory must not verify as ok");
+        assert!(
+            report.failure.is_some(),
+            "should report a cargo-level reason"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -10,8 +10,9 @@
 //! [`McpClient::connect_stdio`] wires it to a server subprocess.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -32,6 +33,10 @@ pub enum McpError {
     Rpc { code: i64, message: String },
     #[error("connection closed before response for request {0}")]
     ConnectionClosed(u64),
+    #[error("connection to the MCP server is closed")]
+    Closed,
+    #[error("request `{method}` timed out after {secs}s")]
+    Timeout { method: String, secs: u64 },
     #[error("unexpected response shape: {0}")]
     Protocol(String),
 }
@@ -84,6 +89,11 @@ pub struct RpcClient {
     writer: tokio::sync::Mutex<Box<dyn AsyncWrite + Unpin + Send>>,
     pending: Pending,
     next_id: AtomicU64,
+    /// Set once the reader task ends (EOF), so new requests fail fast instead of
+    /// registering a waiter nobody will ever complete.
+    closed: Arc<AtomicBool>,
+    /// Per-request deadline; a silent server can never hang the caller forever.
+    request_timeout: Duration,
     _reader: tokio::task::JoinHandle<()>,
 }
 
@@ -95,27 +105,41 @@ impl RpcClient {
         reader: impl AsyncRead + Unpin + Send + 'static,
     ) -> Self {
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let closed = Arc::new(AtomicBool::new(false));
         let reader_pending = pending.clone();
+        let reader_closed = closed.clone();
         let handle = tokio::spawn(async move {
             let mut lines = BufReader::new(reader).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                match serde_json::from_str::<RpcResponse>(&line) {
-                    Ok(resp) => {
-                        if let Some(id) = resp.id {
-                            if let Some(tx) = reader_pending.lock().unwrap().remove(&id) {
-                                let _ = tx.send(resp);
-                            }
-                            // Unmatched id → a stale/duplicate response; drop it.
+            loop {
+                match lines.next_line().await {
+                    Ok(Some(line)) => {
+                        if line.trim().is_empty() {
+                            continue;
                         }
-                        // No id → a server notification; nothing to await, ignore.
+                        match serde_json::from_str::<RpcResponse>(&line) {
+                            Ok(resp) => {
+                                if let Some(id) = resp.id {
+                                    if let Some(tx) = reader_pending.lock().unwrap().remove(&id) {
+                                        let _ = tx.send(resp);
+                                    }
+                                    // Unmatched id → stale/duplicate response; drop.
+                                }
+                                // No id → a server notification; ignore.
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, line = %line, "unparseable rpc line")
+                            }
+                        }
                     }
-                    Err(e) => tracing::warn!(error = %e, line = %line, "unparseable rpc line"),
+                    // A single transport decode error (e.g. invalid UTF-8) must
+                    // not tear down the reader — log and keep going.
+                    Err(e) => tracing::warn!(error = %e, "rpc read error; continuing"),
+                    // Real EOF: stop.
+                    Ok(None) => break,
                 }
             }
-            // Stream closed: fail every outstanding request.
+            // Stream closed: mark it and fail every outstanding request.
+            reader_closed.store(true, Ordering::SeqCst);
             reader_pending.lock().unwrap().clear();
         });
 
@@ -123,8 +147,15 @@ impl RpcClient {
             writer: tokio::sync::Mutex::new(Box::new(writer)),
             pending,
             next_id: AtomicU64::new(1),
+            closed,
+            request_timeout: Duration::from_secs(60),
             _reader: handle,
         }
+    }
+
+    /// Set the per-request deadline (default 60s).
+    pub fn set_request_timeout(&mut self, timeout: Duration) {
+        self.request_timeout = timeout;
     }
 
     async fn write_line(&self, bytes: Vec<u8>) -> Result<()> {
@@ -135,8 +166,14 @@ impl RpcClient {
         Ok(())
     }
 
-    /// Issue a request and await its response.
+    /// Issue a request and await its response, bounded by the request timeout.
     pub async fn request(&self, method: &str, params: Value) -> Result<Value> {
+        // Fail fast if the reader has already ended — otherwise we'd register a
+        // waiter nobody will ever complete.
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(McpError::Closed);
+        }
+
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().insert(id, tx);
@@ -147,10 +184,13 @@ impl RpcClient {
             method,
             params,
         };
-        self.write_line(serde_json::to_vec(&req)?).await?;
+        if let Err(e) = self.write_line(serde_json::to_vec(&req)?).await {
+            self.pending.lock().unwrap().remove(&id); // don't leak the waiter
+            return Err(e);
+        }
 
-        match rx.await {
-            Ok(resp) => {
+        match tokio::time::timeout(self.request_timeout, rx).await {
+            Ok(Ok(resp)) => {
                 if let Some(err) = resp.error {
                     return Err(McpError::Rpc {
                         code: err.code,
@@ -159,7 +199,16 @@ impl RpcClient {
                 }
                 Ok(resp.result.unwrap_or(Value::Null))
             }
-            Err(_) => Err(McpError::ConnectionClosed(id)),
+            // Sender dropped ⇒ the reader exited (connection closed).
+            Ok(Err(_)) => Err(McpError::ConnectionClosed(id)),
+            // Deadline hit ⇒ reclaim the pending slot and report the timeout.
+            Err(_) => {
+                self.pending.lock().unwrap().remove(&id);
+                Err(McpError::Timeout {
+                    method: method.to_string(),
+                    secs: self.request_timeout.as_secs(),
+                })
+            }
         }
     }
 
@@ -224,6 +273,11 @@ impl McpClient {
             rpc: RpcClient::new(writer, reader),
             _child: None,
         }
+    }
+
+    /// Set the per-request deadline (default 60s).
+    pub fn set_request_timeout(&mut self, timeout: Duration) {
+        self.rpc.set_request_timeout(timeout);
     }
 
     /// Spawn an MCP server subprocess and speak to it over its stdio.
@@ -409,6 +463,23 @@ mod tests {
             .unwrap();
         assert!(!res.is_error);
         assert_eq!(res.text, "called read_file");
+    }
+
+    #[tokio::test]
+    async fn request_times_out_on_a_silent_server() {
+        // A server that reads the request but never replies. The connection stays
+        // open (no EOF), so only the request timeout can rescue the caller.
+        let (c2s_client, mut c2s_server) = tokio::io::duplex(8192);
+        let (_s2c_server, s2c_client) = tokio::io::duplex(8192);
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(&mut c2s_server).lines();
+            while let Ok(Some(_)) = lines.next_line().await {} // drain, never answer
+        });
+
+        let mut client = McpClient::from_streams(c2s_client, s2c_client);
+        client.set_request_timeout(Duration::from_millis(150));
+        let err = client.initialize("t").await.unwrap_err();
+        assert!(matches!(err, McpError::Timeout { .. }), "got {err:?}");
     }
 
     #[tokio::test]

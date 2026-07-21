@@ -122,7 +122,12 @@ impl BudgetTracker {
     ) -> Result<T> {
         let remaining = self.time_remaining();
         if remaining.is_zero() {
-            return self.check_deadline().map(|_| unreachable!());
+            // Deadline already passed — don't even start the future.
+            return Err(HarnessError::BudgetExceeded {
+                kind: BudgetKind::WallClock,
+                used: self.inner.budget.wall_clock.as_millis() as u64,
+                limit: self.inner.budget.wall_clock.as_millis() as u64,
+            });
         }
         match tokio::time::timeout(remaining, fut).await {
             Ok(inner) => inner,
