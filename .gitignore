@@ -1,4 +1,5 @@
-target/
-Cargo.lock merge=binary
+/target
 *.sqlite
+*.sqlite-wal
+*.sqlite-shm
 *.db
