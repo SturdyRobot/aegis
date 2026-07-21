@@ -171,4 +171,6 @@ pub enum Outcome {
     BudgetExhausted { reason: String },
     /// The run stopped on a fatal fault.
     Failed { reason: String },
+    /// The run was interrupted (e.g. Ctrl-C); the partial trajectory is retained.
+    Interrupted { reason: String },
 }

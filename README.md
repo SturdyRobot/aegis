@@ -131,20 +131,39 @@ sturdy run <goal>          Drive an agent under budgets, journaling every step
         --max-steps N        step ceiling (default 12)
         --max-secs N         wall-clock ceiling (default 120)
         --db <path>          SQLite ledger (default sturdy.sqlite)
+        --config <path>      load defaults from a TOML file
+        --json               emit the result as JSON
 
-sturdy compact <file>      AST-aware token compaction of a Rust file
-        --max-tokens N       only compact if the file exceeds N tokens
+sturdy compact <file>          AST-aware token compaction of a Rust file
+sturdy verify [dir]  [--json]  Compile a Rust project, report diagnostics
+sturdy replay <id>   [--json]  Reconstruct a past run from the ledger
+sturdy ledger list   [--json]  List every recorded run
+sturdy ledger show <id> [--json]  One run's metadata, stats & full trajectory
+```
 
-sturdy verify [dir]        Compile a Rust project, report structured diagnostics
-sturdy replay <task-id>    Reconstruct a past run from the ledger
-sturdy ledger list         List every recorded run
+`Ctrl-C` during a run finalizes the ledger and prints the partial trajectory
+(completed steps are journaled as they happen). Every command supports `--json`
+for scripting/CI, and piping into `head`/`less` is safe.
+
+### Configuration
+
+`run` reads defaults from `./sturdy.toml` (or `--config <path>`). Flags override
+the file, which overrides the built-in defaults:
+
+```toml
+model      = "llama3.1"
+api_base   = "http://localhost:11434/v1"
+mcp        = "npx -y @modelcontextprotocol/server-filesystem ."
+max_steps  = 20
+max_tokens = 200000
+db         = "runs.sqlite"
 ```
 
 ## Build & test
 
 ```sh
 cargo build            # workspace + `sturdy` binary
-cargo test --workspace # 29 tests, all green
+cargo test --workspace # 30 tests, all green
 ```
 
 Requires a Rust toolchain and a C compiler (Tree-sitter grammars and bundled

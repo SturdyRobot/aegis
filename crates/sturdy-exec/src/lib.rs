@@ -283,7 +283,7 @@ pub fn parse_cargo_json(stream: &str) -> Vec<Diagnostic> {
 }
 
 /// The verdict of a verification run.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct VerifyReport {
     pub ok: bool,
     pub errors: usize,

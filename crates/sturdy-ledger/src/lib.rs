@@ -156,6 +156,7 @@ impl Ledger {
             Outcome::Finished { answer } => ("finished", Some(answer.clone())),
             Outcome::BudgetExhausted { reason } => ("budget_exhausted", Some(reason.clone())),
             Outcome::Failed { reason } => ("failed", Some(reason.clone())),
+            Outcome::Interrupted { reason } => ("interrupted", Some(reason.clone())),
         };
         let conn = self.lock()?;
         let affected = conn.execute(
@@ -223,6 +224,29 @@ impl Ledger {
             .map_err(Into::into)
     }
 
+    /// Full metadata for a single run.
+    pub fn run_detail(&self, task_id: TaskId) -> Result<RunDetail> {
+        let conn = self.lock()?;
+        conn.query_row(
+            "SELECT task_id, goal, workspace, status, answer, started_ms, ended_ms
+             FROM runs WHERE task_id = ?1",
+            [task_id.to_string()],
+            |r| {
+                Ok(RunDetail {
+                    task_id: r.get(0)?,
+                    goal: r.get(1)?,
+                    workspace: r.get(2)?,
+                    status: r.get(3)?,
+                    answer: r.get(4)?,
+                    started_ms: r.get(5)?,
+                    ended_ms: r.get(6)?,
+                })
+            },
+        )
+        .optional()?
+        .ok_or(LedgerError::NotFound(task_id))
+    }
+
     /// A cloneable observer that journals steps live as the engine runs.
     pub fn observer(&self) -> Arc<LedgerObserver> {
         Arc::new(LedgerObserver {
@@ -260,12 +284,24 @@ impl RawStep {
 }
 
 /// Lightweight run listing for the CLI.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct RunSummary {
     pub task_id: String,
     pub goal: String,
     pub status: Option<String>,
     pub started_ms: i64,
+}
+
+/// Full metadata for a single run (for `ledger show`).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RunDetail {
+    pub task_id: String,
+    pub goal: String,
+    pub workspace: Option<String>,
+    pub status: Option<String>,
+    pub answer: Option<String>,
+    pub started_ms: i64,
+    pub ended_ms: Option<i64>,
 }
 
 /// Adapts a [`Ledger`] to the engine's [`StepObserver`] hook. Errors are logged
@@ -360,5 +396,35 @@ mod tests {
             observer.on_step(&task, s);
         }
         assert_eq!(ledger.replay(task.id).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn run_detail_reflects_status_and_answer() {
+        let ledger = Ledger::in_memory().unwrap();
+        let task = Task::new("detail me");
+        ledger.begin_run(&task).unwrap();
+        // Running: no answer, no end time yet.
+        let d = ledger.run_detail(task.id).unwrap();
+        assert_eq!(d.goal, "detail me");
+        assert_eq!(d.status.as_deref(), Some("running"));
+        assert!(d.ended_ms.is_none());
+
+        ledger
+            .finalize(
+                task.id,
+                &Outcome::Finished {
+                    answer: "42".into(),
+                },
+            )
+            .unwrap();
+        let d = ledger.run_detail(task.id).unwrap();
+        assert_eq!(d.status.as_deref(), Some("finished"));
+        assert_eq!(d.answer.as_deref(), Some("42"));
+        assert!(d.ended_ms.is_some());
+
+        assert!(matches!(
+            ledger.run_detail(TaskId::new()).unwrap_err(),
+            LedgerError::NotFound(_)
+        ));
     }
 }
