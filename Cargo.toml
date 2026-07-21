@@ -1,0 +1,68 @@
+# SturdyHarness — a deterministic AI agent execution & verification harness.
+# The workspace root is also the `sturdy` CLI binary.
+[package]
+name = "sturdy-harness"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "A high-throughput, deterministic AI agent execution harness and verification engine."
+default-run = "sturdy"
+
+[[bin]]
+name = "sturdy"
+path = "src/main.rs"
+
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/SturdyRobot/sturdy-harness"
+
+# One source of truth for dependency versions across every crate.
+[workspace.dependencies]
+sturdy-core = { path = "crates/sturdy-core" }
+sturdy-compact = { path = "crates/sturdy-compact" }
+sturdy-mcp = { path = "crates/sturdy-mcp" }
+sturdy-exec = { path = "crates/sturdy-exec" }
+sturdy-ledger = { path = "crates/sturdy-ledger" }
+
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "io-util", "sync", "fs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+async-trait = "0.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+clap = { version = "4", features = ["derive"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+tree-sitter = "0.24"
+tree-sitter-rust = "0.23"
+nix = { version = "0.29", features = ["signal", "process"] }
+indicatif = "0.17"
+
+[dependencies]
+sturdy-core = { workspace = true }
+sturdy-compact = { workspace = true }
+sturdy-mcp = { workspace = true }
+sturdy-exec = { workspace = true }
+sturdy-ledger = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+indicatif = { workspace = true }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
