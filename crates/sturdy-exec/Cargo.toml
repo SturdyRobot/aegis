@@ -1,6 +1,6 @@
 [package]
 name = "sturdy-exec"
-description = "Tokio subprocess runner with process groups and a compiler diagnostic interceptor."
+description = "Isolated Tokio subprocess runner (process groups) with auto-detecting build/test verification (cargo/go/npm/pytest) and cargo diagnostics."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

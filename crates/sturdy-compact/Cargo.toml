@@ -1,6 +1,6 @@
 [package]
 name = "sturdy-compact"
-description = "Tree-sitter AST-aware token compactor for context-window management."
+description = "Multi-language (Rust/Python/JS/TS/Go) Tree-sitter token compactor for context-window management."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

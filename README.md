@@ -17,17 +17,24 @@ process. Every one of those is a hard ceiling here.
 
 ```
 $ sturdy run "assess the toolchain"
-▶ run 442a9c30-2f2a-4dcf-9a19-524360ebc512
+▶ run 4b7ef49c-…
+  goal: assess the toolchain
+
   [0] 🧠 Establish the toolchain before touching the project.
-      → shell {"cmd":"cargo","args":["--version"]}
-      ← cargo 1.95.0
+      → shell {"args":["--version"],"cmd":"cargo"}
+      ← cargo 1.95.0 (…)
   [1] 🧠 Confirm the compiler is present too.
-      → shell {"cmd":"rustc","args":["--version"]}
-      ← rustc 1.95.0
-  [2] ⏹ finish: Toolchain verified.
-✔ finished · 3 steps · 54 tokens · 35ms
-  replay with: sturdy replay 442a9c30-… 
+      → shell {"args":["--version"],"cmd":"rustc"}
+      ← rustc 1.95.0 (…)
+  [2] 🧠 Toolchain verified; nothing else to do for this demo goal.
+      ⏹ finish: Toolchain verified.
+
+✔ finished: Toolchain verified.
+  3 steps · 54 tokens
+  replay with: sturdy replay 4b7ef49c-… --db sturdy.sqlite
 ```
+
+(That's the offline demo policy. Add `--model` to drive a real LLM — see below.)
 
 ## Install
 
@@ -86,7 +93,7 @@ Plugging in a real model is just implementing one trait:
 
 ```rust
 #[async_trait]
-trait Reasoner {
+pub trait Reasoner: Send + Sync {
     async fn next_action(&self, task: &Task, trajectory: &Trajectory) -> Result<Decision>;
 }
 ```
@@ -134,11 +141,11 @@ sturdy run <goal>          Drive an agent under budgets, journaling every step
         --config <path>      load defaults from a TOML file
         --json               emit the result as JSON
 
-sturdy compact <file>  [--lang L] [--json]  AST compaction (rust/python/js/ts/go)
-sturdy verify [dir]              [--json]  Build/test (cargo/go/npm/pytest, auto-detected)
-sturdy replay <id>               [--json]  Reconstruct a past run from the ledger
-sturdy ledger list   [--json]  List every recorded run
-sturdy ledger show <id> [--json]  One run's metadata, stats & full trajectory
+sturdy compact <file> [--lang L] [--json]   AST compaction (rust/python/js/ts/go)
+sturdy verify [dir]              [--json]   build/test — cargo/go/npm/pytest (auto-detected)
+sturdy replay <id>               [--json]   reconstruct a past run from the ledger
+sturdy ledger list               [--json]   list every recorded run
+sturdy ledger show <id>          [--json]   one run's metadata, stats & full trajectory
 ```
 
 `Ctrl-C` during a run finalizes the ledger and prints the partial trajectory
