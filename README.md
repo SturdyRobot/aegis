@@ -71,6 +71,29 @@ A Cargo workspace with strict separation of concerns. `sturdy-core` is the
 dependency root (pure, no I/O); every satellite crate depends on it and converts
 its own errors into the core taxonomy at the boundary.
 
+```mermaid
+flowchart TD
+    CLI["<b>sturdy</b> (bin)<br/>clap CLI"]
+    Core["<b>sturdy-core</b><br/>domain · ReAct engine<br/>budgets · error taxonomy"]
+    Compact["<b>sturdy-compact</b><br/>Tree-sitter compaction"]
+    MCP["<b>sturdy-mcp</b><br/>JSON-RPC 2.0 client"]
+    Exec["<b>sturdy-exec</b><br/>subprocess runner + verify"]
+    Ledger["<b>sturdy-ledger</b><br/>SQLite journal + replay"]
+    LLM["<b>sturdy-llm</b><br/>OpenAI-compatible reasoner"]
+
+    CLI --> Compact & MCP & Exec & Ledger & LLM & Core
+    Compact --> Core
+    MCP --> Core
+    Exec --> Core
+    Ledger --> Core
+    LLM --> Core
+
+    classDef root fill:#1f6feb,stroke:#0b3d91,color:#fff;
+    classDef sat fill:#0d1117,stroke:#30363d,color:#c9d1d9;
+    class Core root;
+    class Compact,MCP,Exec,Ledger,LLM,CLI sat;
+```
+
 | Crate | Responsibility |
 |-------|----------------|
 | **sturdy-core** | Domain model, the ReAct engine + validated state machine, hard budget enforcement (atomic + wall-clock), the shared error type. Pure and heavily tested. |
@@ -88,6 +111,16 @@ rejects any transition outside the cycle, and the shared `BudgetTracker` is
 **charged before any expensive work is done** — so exhaustion is detected
 deterministically, and the engine always returns a full trajectory even when it
 stops early.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Think
+    Think --> Act: Decision (charged to budget first)
+    Act --> Observe: run tool (MCP or built-in shell)
+    Observe --> Think: append step to trajectory + journal
+    Think --> [*]: finish
+    Observe --> [*]: budget exhausted (tokens / steps / wall-clock)
+```
 
 Plugging in a real model is just implementing one trait:
 
@@ -175,6 +208,33 @@ cargo test --workspace # 43 tests (incl. end-to-end CLI tests), all green
 
 Requires a Rust toolchain and a C compiler (Tree-sitter grammars and bundled
 SQLite build native code). No network is needed to build or to run the demo path.
+
+## AI-Native development
+
+This is a Rust codebase built with an **AI-native workflow**: I drive an AI coding
+agent as a pair programmer and own the architecture, the design decisions, and the
+final review. AI is a tool in the loop, not the author of record — the value is
+that one developer can direct it to ship and *maintain* a system this broad without
+the quality bar dropping. Concretely, where it was used:
+
+- **Design & scaffolding.** I set the crate boundaries and the core contracts (the
+  `Reasoner` trait, the budget model, the error taxonomy); the agent scaffolds
+  implementations against them, and I review, refactor, and reject.
+- **Adversarial self-audit.** After each subsystem landed, the agent was tasked to
+  *attack its own code*. That surfaced real defects a happy-path pass would miss —
+  an output-drain deadlock when a backgrounded child holds the pipe, a non-Unix
+  timeout that never actually killed the child, an MCP reader/dispatch race, and
+  a `verify` false-positive on non-cargo directories. Every one was fixed **with a
+  regression test** so it can't silently return.
+- **Test generation.** The suite (unit + end-to-end CLI tests via `assert_cmd`)
+  was written agent-first from stated invariants, then pruned by hand.
+- **CI as the backstop.** `cargo fmt`, `clippy -D warnings`, and the full test
+  suite run on Linux and macOS on every push — the machine-written code has to pass
+  the same gate as anything else.
+
+The determinism goals of the tool itself (hard budgets, byte-identical replay)
+are also what make an AI-native workflow trustworthy here: every run is journaled
+and reproducible, so a change's effect is verifiable rather than vibes.
 
 ## Status
 
