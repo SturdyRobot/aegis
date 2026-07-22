@@ -1,0 +1,250 @@
+# SturdyHarness
+
+[![CI](https://github.com/SturdyRobot/sturdy-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/SturdyRobot/sturdy-harness/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+A deterministic AI-agent execution and verification harness, written in Rust.
+
+SturdyHarness sits between an LLM (frontier API or local Ollama) and a real
+codebase. It drives a **ReAct** agent loop under **hard, enforceable budgets**,
+manages the context window with **AST-aware compaction**, runs tools over the
+**Model Context Protocol**, executes verification in **isolated subprocesses**,
+and journals every step to **SQLite** for deterministic replay.
+
+The design goal is *control*: an agent should never run away — not on tokens,
+not on steps, not on wall-clock, and not on a build that forks a runaway child
+process. Every one of those is a hard ceiling here.
+
+```
+$ sturdy run "assess the toolchain"
+▶ run 4b7ef49c-…
+  goal: assess the toolchain
+
+  [0] 🧠 Establish the toolchain before touching the project.
+      → shell {"args":["--version"],"cmd":"cargo"}
+      ← cargo 1.95.0 (…)
+  [1] 🧠 Confirm the compiler is present too.
+      → shell {"args":["--version"],"cmd":"rustc"}
+      ← rustc 1.95.0 (…)
+  [2] 🧠 Toolchain verified; nothing else to do for this demo goal.
+      ⏹ finish: Toolchain verified.
+
+✔ finished: Toolchain verified.
+  3 steps · 54 tokens
+  replay with: sturdy replay 4b7ef49c-… --db sturdy.sqlite
+```
+
+(That's the offline demo policy. Add `--model` to drive a real LLM — see below.)
+
+## Install
+
+**Prerequisites:** a recent stable [Rust toolchain](https://rustup.rs) and a C
+compiler (`cc`/`clang` on macOS/Linux, MSVC on Windows) — the Tree-sitter
+grammar and bundled SQLite build a little native code. No network is required at
+runtime.
+
+Install the `sturdy` binary straight from GitHub:
+
+```sh
+cargo install --git https://github.com/SturdyRobot/sturdy-harness
+```
+
+Or clone and build from source:
+
+```sh
+git clone https://github.com/SturdyRobot/sturdy-harness
+cd sturdy-harness
+cargo install --path .        # installs `sturdy` into ~/.cargo/bin
+# or just: cargo build --release   → target/release/sturdy
+```
+
+Then:
+
+```sh
+sturdy --help
+sturdy run "assess the toolchain"
+```
+
+## Architecture
+
+A Cargo workspace with strict separation of concerns. `sturdy-core` is the
+dependency root (pure, no I/O); every satellite crate depends on it and converts
+its own errors into the core taxonomy at the boundary.
+
+```mermaid
+flowchart TD
+    CLI["<b>sturdy</b> (bin)<br/>clap CLI"]
+    Core["<b>sturdy-core</b><br/>domain · ReAct engine<br/>budgets · error taxonomy"]
+    Compact["<b>sturdy-compact</b><br/>Tree-sitter compaction"]
+    MCP["<b>sturdy-mcp</b><br/>JSON-RPC 2.0 client"]
+    Exec["<b>sturdy-exec</b><br/>subprocess runner + verify"]
+    Ledger["<b>sturdy-ledger</b><br/>SQLite journal + replay"]
+    LLM["<b>sturdy-llm</b><br/>OpenAI-compatible reasoner"]
+
+    CLI --> Compact & MCP & Exec & Ledger & LLM & Core
+    Compact --> Core
+    MCP --> Core
+    Exec --> Core
+    Ledger --> Core
+    LLM --> Core
+
+    classDef root fill:#1f6feb,stroke:#0b3d91,color:#fff;
+    classDef sat fill:#0d1117,stroke:#30363d,color:#c9d1d9;
+    class Core root;
+    class Compact,MCP,Exec,Ledger,LLM,CLI sat;
+```
+
+| Crate | Responsibility |
+|-------|----------------|
+| **sturdy-core** | Domain model, the ReAct engine + validated state machine, hard budget enforcement (atomic + wall-clock), the shared error type. Pure and heavily tested. |
+| **sturdy-compact** | Tree-sitter token compactor for **Rust, Python, JS, TS, Go**. Keeps code *skeletons* (signatures, doc comments) and elides function bodies to fit a context budget. |
+| **sturdy-mcp** | A native async **JSON-RPC 2.0** client for MCP over newline-delimited stdio, with concurrent request de-multiplexing. Speaks `initialize` / `tools/list` / `tools/call`. |
+| **sturdy-exec** | Tokio subprocess runner. Each child leads its own **process group**, so a timeout reaps the whole subtree (`killpg`). Auto-detects and runs the project's verifier (**cargo/go/npm/pytest**) with a cargo **diagnostic interceptor**. |
+| **sturdy-ledger** | Append-only **SQLite** journal. Records each step live via the engine's observer hook and reconstructs any run byte-for-byte (`replay`). |
+| **sturdy-llm** | A `Reasoner` over any **OpenAI-compatible** chat endpoint (OpenAI/Ollama/vLLM/LM Studio) that emits ReAct JSON parsed straight into the engine's `Action` type. |
+| **sturdy** (bin) | `clap` CLI wiring it all together. |
+
+### The ReAct engine
+
+The heart is a strict `Think → Act → Observe` cycle. An explicit `StateMachine`
+rejects any transition outside the cycle, and the shared `BudgetTracker` is
+**charged before any expensive work is done** — so exhaustion is detected
+deterministically, and the engine always returns a full trajectory even when it
+stops early.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Think
+    Think --> Act: Decision (charged to budget first)
+    Act --> Observe: run tool (MCP or built-in shell)
+    Observe --> Think: append step to trajectory + journal
+    Think --> [*]: finish
+    Observe --> [*]: budget exhausted (tokens / steps / wall-clock)
+```
+
+Plugging in a real model is just implementing one trait:
+
+```rust
+#[async_trait]
+pub trait Reasoner: Send + Sync {
+    async fn next_action(&self, task: &Task, trajectory: &Trajectory) -> Result<Decision>;
+}
+```
+
+`sturdy-llm` ships a `ChatReasoner` implementing this against any
+OpenAI-compatible endpoint. With no `--model`, the CLI uses a deterministic demo
+policy so the whole pipeline runs offline.
+
+## Driving a real model
+
+`--model` points the agent at any OpenAI-compatible chat endpoint — **Ollama,
+OpenAI, vLLM, LM Studio, llama.cpp**:
+
+```sh
+# Local Ollama (default base URL), built-in shell tool:
+sturdy run "what version of cargo is installed?" --model llama3.1
+
+# OpenAI (key read from an env var, never the command line):
+OPENAI_API_KEY=sk-... \
+  sturdy run "summarize the crate layout" \
+  --model gpt-4o-mini --api-base https://api.openai.com/v1 --api-key-env OPENAI_API_KEY
+
+# Give the agent a real MCP server as its tool source:
+sturdy run "list the Rust files and read main.rs" \
+  --model llama3.1 \
+  --mcp "npx -y @modelcontextprotocol/server-filesystem ."
+```
+
+The model is prompted to emit a strict ReAct JSON object each turn; its reported
+token usage is charged against the budget, and every step is journaled for
+replay just like the demo path.
+
+## CLI
+
+```
+sturdy run <goal>          Drive an agent under budgets, journaling every step
+        --model NAME         LLM to drive the agent (omit → offline demo policy)
+        --api-base URL       OpenAI-compatible base URL (default: local Ollama)
+        --api-key-env VAR    read the API key from this env var
+        --mcp "CMD ARGS"     launch an MCP server as the tool source
+        --max-tokens N       token ceiling (default 100k)
+        --max-steps N        step ceiling (default 12)
+        --max-secs N         wall-clock ceiling (default 120)
+        --db <path>          SQLite ledger (default sturdy.sqlite)
+        --config <path>      load defaults from a TOML file
+        --json               emit the result as JSON
+
+sturdy compact <file> [--lang L] [--json]   AST compaction (rust/python/js/ts/go)
+sturdy verify [dir]              [--json]   build/test — cargo/go/npm/pytest (auto-detected)
+sturdy replay <id>               [--json]   reconstruct a past run from the ledger
+sturdy ledger list               [--json]   list every recorded run
+sturdy ledger show <id>          [--json]   one run's metadata, stats & full trajectory
+```
+
+`Ctrl-C` during a run finalizes the ledger and prints the partial trajectory
+(completed steps are journaled as they happen). Every command supports `--json`
+for scripting/CI, and piping into `head`/`less` is safe.
+
+### Configuration
+
+`run` reads defaults from `./sturdy.toml` (or `--config <path>`). Flags override
+the file, which overrides the built-in defaults:
+
+```toml
+model      = "llama3.1"
+api_base   = "http://localhost:11434/v1"
+mcp        = "npx -y @modelcontextprotocol/server-filesystem ."
+max_steps  = 20
+max_tokens = 200000
+db         = "runs.sqlite"
+```
+
+## Build & test
+
+```sh
+cargo build            # workspace + `sturdy` binary
+cargo test --workspace # 43 tests (incl. end-to-end CLI tests), all green
+```
+
+Requires a Rust toolchain and a C compiler (Tree-sitter grammars and bundled
+SQLite build native code). No network is needed to build or to run the demo path.
+
+## AI-Native development
+
+This is a Rust codebase built with an **AI-native workflow**: I drive an AI coding
+agent as a pair programmer and own the architecture, the design decisions, and the
+final review. AI is a tool in the loop, not the author of record — the value is
+that one developer can direct it to ship and *maintain* a system this broad without
+the quality bar dropping. Concretely, where it was used:
+
+- **Design & scaffolding.** I set the crate boundaries and the core contracts (the
+  `Reasoner` trait, the budget model, the error taxonomy); the agent scaffolds
+  implementations against them, and I review, refactor, and reject.
+- **Adversarial self-audit.** After each subsystem landed, the agent was tasked to
+  *attack its own code*. That surfaced real defects a happy-path pass would miss —
+  an output-drain deadlock when a backgrounded child holds the pipe, a non-Unix
+  timeout that never actually killed the child, an MCP reader/dispatch race, and
+  a `verify` false-positive on non-cargo directories. Every one was fixed **with a
+  regression test** so it can't silently return.
+- **Test generation.** The suite (unit + end-to-end CLI tests via `assert_cmd`)
+  was written agent-first from stated invariants, then pruned by hand.
+- **CI as the backstop.** `cargo fmt`, `clippy -D warnings`, and the full test
+  suite run on Linux and macOS on every push — the machine-written code has to pass
+  the same gate as anything else.
+
+The determinism goals of the tool itself (hard budgets, byte-identical replay)
+are also what make an AI-native workflow trustworthy here: every run is journaled
+and reproducible, so a change's effect is verifiable rather than vibes.
+
+## Status
+
+Every subsystem has a real, tested implementation. `sturdy run` drives a live
+model through real MCP (or built-in) tools under hard budgets, journaling each
+step for deterministic replay; `compact` handles five languages; `verify`
+auto-detects the project's build/test system; every command has `--json` output
+and a `sturdy.toml`-configurable, pipe-safe CLI covered by end-to-end tests.
+A TUI and richer built-in tools are the remaining niceties.
+
+## License
+
+MIT
