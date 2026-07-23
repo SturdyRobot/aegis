@@ -52,6 +52,10 @@ enum Command {
     Ledger(LedgerArgs),
     /// Forensic Shadow-Guard report: intercepted mutations + token/cost summary.
     Audit(AuditArgs),
+    /// Regression-test a candidate run against a baseline suite.
+    Eval(EvalArgs),
+    /// Resume a crashed/interrupted run from its last journaled step.
+    Resume(ResumeArgs),
 }
 
 #[derive(Parser)]
@@ -67,6 +71,32 @@ struct AuditArgs {
     /// Emit the report as JSON.
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Parser)]
+struct ResumeArgs {
+    /// The run id (UUID) to resume.
+    run_id: String,
+    #[arg(long, default_value = "aegis.sqlite")]
+    db: PathBuf,
+    /// Resume even if the run was still 'running' when journaled (possible crash
+    /// mid-action). Past steps are never re-executed, but acknowledges the risk
+    /// that an un-journaled in-flight side effect could be repeated.
+    #[arg(long)]
+    force: bool,
+}
+
+#[derive(Parser)]
+struct EvalArgs {
+    /// Path to the eval suite JSON (names the baseline ledger + metrics).
+    #[arg(long)]
+    suite: PathBuf,
+    /// Candidate ledger (a fresh `aegis run`) to compare against the baseline.
+    #[arg(long)]
+    candidate: PathBuf,
+    /// Report format for CI.
+    #[arg(long, default_value = "pretty")]
+    output_format: String,
 }
 
 // For `run`, flags override `aegis.toml`, which overrides the built-in defaults.
@@ -356,6 +386,8 @@ async fn main() -> Result<()> {
         Command::Replay(a) => cmd_replay(a),
         Command::Ledger(a) => cmd_ledger(a),
         Command::Audit(a) => cmd_audit(a),
+        Command::Eval(a) => cmd_eval(a),
+        Command::Resume(a) => cmd_resume(a).await,
     }
 }
 
@@ -369,6 +401,76 @@ fn cmd_audit(a: AuditArgs) -> Result<()> {
         println!("{}", report.to_pretty());
     }
     Ok(())
+}
+
+/// Resume a run from its last journaled step, driving the ReAct loop forward.
+/// Past steps are seeded as context and never re-executed, so already-performed
+/// (possibly side-effecting) tool calls aren't repeated.
+async fn cmd_resume(a: ResumeArgs) -> Result<()> {
+    let task_id = TaskId(uuid_from_str(&a.run_id)?);
+    let ledger = Ledger::open(&a.db).context("opening ledger")?;
+    let detail = ledger
+        .run_detail(task_id)
+        .with_context(|| format!("no run {} in {}", a.run_id, a.db.display()))?;
+    let prior = ledger.replay(task_id)?;
+
+    match detail.status.as_deref() {
+        Some("finished") => {
+            println!("run {} already finished — nothing to resume.", a.run_id);
+            return Ok(());
+        }
+        // A 'running' status means it never finalized — likely a crash. The last
+        // in-flight action may have executed without being journaled.
+        Some("running") if !a.force => anyhow::bail!(
+            "run {} was still 'running' when last journaled (possible crash mid-action).\n\
+             Resuming will NOT replay the {} journaled steps, but if a side-effecting tool ran\n\
+             without being recorded, the agent could repeat it. Re-run with --force to proceed.",
+            a.run_id,
+            prior.len()
+        ),
+        _ => {}
+    }
+
+    let task = Task {
+        id: task_id,
+        goal: detail.goal.clone(),
+        workspace: None,
+    };
+    let engine = ReActEngine::new(
+        Arc::new(DemoReasoner),
+        Arc::new(ShellTool {
+            cwd: PathBuf::from("."),
+            timeout: Duration::from_secs(30),
+        }),
+        Budget::standard().tracker(),
+    )
+    .with_observer(ledger.observer());
+
+    println!(
+        "↻ resuming {} from step {} — {}",
+        a.run_id,
+        prior.len(),
+        detail.goal
+    );
+    let (outcome, traj) = engine.resume(&task, prior).await;
+    ledger.finalize(task_id, &outcome)?;
+    println!(
+        "  {} total steps · {} tokens · {outcome:?}",
+        traj.len(),
+        traj.total_tokens()
+    );
+    Ok(())
+}
+
+/// Compare a candidate run against a baseline suite; exit non-zero on regression.
+fn cmd_eval(a: EvalArgs) -> Result<()> {
+    let format: aegis_eval::OutputFormat = a
+        .output_format
+        .parse()
+        .map_err(|e: String| anyhow::anyhow!(e))?;
+    let code =
+        aegis_eval::run_eval(&a.suite, &a.candidate, format).map_err(|e| anyhow::anyhow!("{e}"))?;
+    std::process::exit(code);
 }
 
 async fn cmd_run(a: RunArgs) -> Result<()> {
