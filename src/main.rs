@@ -28,6 +28,7 @@ use sturdy_ledger::Ledger;
 use sturdy_llm::{ChatReasoner, ToolSpec};
 use sturdy_mcp::McpClient;
 
+mod mcp_server;
 mod telemetry;
 
 /// A deterministic AI agent execution & verification harness.
@@ -58,6 +59,9 @@ enum Command {
     Resume(ResumeArgs),
     /// Serve the HTTP control API (inspect runs, resolve HITL approvals remotely).
     Serve(ServeArgs),
+    /// Run as an MCP server over stdio, exposing Aegis tools (compact, audit, run)
+    /// to any MCP client (e.g. Claude Code).
+    Mcp,
 }
 
 #[derive(Parser)]
@@ -404,6 +408,7 @@ async fn main() -> Result<()> {
         Command::Eval(a) => cmd_eval(a),
         Command::Resume(a) => cmd_resume(a).await,
         Command::Serve(a) => cmd_serve(a).await,
+        Command::Mcp => mcp_server::serve_stdio().await,
     }
 }
 

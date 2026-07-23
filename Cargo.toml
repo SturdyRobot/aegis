@@ -24,7 +24,7 @@ members = ["crates/*"]
 # needs a nightly toolchain + bpf-linker. Excluded so the normal workspace build
 # (and CI) stays kernel-free and cross-platform. Build it separately — see
 # crates/aegis-probe/BUILD_EBPF.md.
-exclude = ["crates/aegis-probe-ebpf", "crates/aegis-bridge"]
+exclude = ["crates/aegis-probe-ebpf", "crates/aegis-bridge", "crates/aegis-web"]
 resolver = "2"
 
 [workspace.package]
@@ -43,7 +43,7 @@ sturdy-exec = { path = "crates/sturdy-exec" }
 sturdy-ledger = { path = "crates/sturdy-ledger" }
 sturdy-llm = { path = "crates/sturdy-llm" }
 
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "io-util", "sync", "fs", "net", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "io-util", "io-std", "sync", "fs", "net", "signal"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

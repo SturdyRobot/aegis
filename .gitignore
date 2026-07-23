@@ -6,3 +6,6 @@ crates/aegis-bridge/Cargo.lock
 # stray ledgers from local runs
 *.sqlite
 *.sqlite-*
+
+# Local MCP client wiring (machine-specific path; documented in README)
+.mcp.json
