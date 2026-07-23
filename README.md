@@ -36,6 +36,32 @@ $ aegis run "assess the toolchain"
 
 (That's the offline demo policy. Add `--model` to drive a real LLM — see below.)
 
+## Capabilities
+
+Aegis is a small workspace of composable crates, each a clean trait implementation:
+
+- **Deterministic ReAct core** — hard token/step/wall-clock budgets, a validated
+  state machine, and byte-for-byte replay from an append-only SQLite journal.
+- **Shadow-Guard audit mode** (`aegis run --audit`) — a **zero-risk dry-run**: read
+  tools execute for real so the agent reasons on real data, but every *mutating*
+  tool is intercepted (nothing is written/called) and journaled. `aegis audit`
+  then prints a security scorecard + a measured token/cost report.
+- **Crash recovery** (`aegis resume`) — continue an interrupted run from its last
+  journaled step without re-executing already-performed (side-effecting) actions.
+- **Bounded subagent mesh** (`aegis-mesh`) — spawn subagents in isolated Tokio
+  tasks under hard budgets; a panic/timeout/runaway is contained, never touching
+  the parent.
+- **MCP client** (`aegis-mcp`) — native async JSON-RPC 2.0 over **stdio and
+  streamable HTTP**; auto-discovers and routes external tools.
+- **Regression harness** (`aegis eval`) — compare a run against a baseline ledger
+  (step/tool/token/drift metrics) with JUnit output and CI exit codes.
+- **AST-aware compaction** + a safe **content-hashed cache** (`aegis-cache`) — keep
+  code skeletons within a token budget; never re-parse an unchanged file.
+- **Guardrails** — user-space policy (`aegis-policy`: blocked tools, PII redaction,
+  budgets) and kernel-boundary supervision (`aegis-probe`: eBPF LSM, Linux).
+- **OpenTelemetry** (`--features otel`) — export execution spans to
+  Jaeger/Datadog/Honeycomb; off by default, zero cost otherwise.
+
 ## Install
 
 **Prerequisites:** a recent stable [Rust toolchain](https://rustup.rs) and a C
@@ -102,6 +128,12 @@ flowchart TD
 | **sturdy-exec** | Tokio subprocess runner. Each child leads its own **process group**, so a timeout reaps the whole subtree (`killpg`). Auto-detects and runs the project's verifier (**cargo/go/npm/pytest**) with a cargo **diagnostic interceptor**. |
 | **sturdy-ledger** | Append-only **SQLite** journal. Records each step live via the engine's observer hook and reconstructs any run byte-for-byte (`replay`). |
 | **sturdy-llm** | A `Reasoner` over any **OpenAI-compatible** chat endpoint (OpenAI/Ollama/vLLM/LM Studio) that emits ReAct JSON parsed straight into the engine's `Action` type. |
+| **aegis-mesh** | Bounded subagent supervision — spawn children in isolated Tokio tasks under hard token/step/wall-clock bounds; panics/timeouts/runaways are contained and journaled, never touching the parent. |
+| **aegis-eval** | Event-sourced regression harness — profiles baseline vs candidate ledgers (step/tool/token/drift metrics), emits JUnit XML + CI exit codes. |
+| **aegis-cache** | Content-hashed (`sha256`) cache of deterministic AST compaction — never LLM responses. Unchanged file → cached skeleton, no re-parse. |
+| **aegis-policy** | Lightweight user-space guardrails from `aegis-policy.toml` (blocked tools, PII redaction, per-run budgets) — a native matcher, not OPA/Rego. |
+| **aegis-audit** | Shadow-Guard dry-run interceptor + forensic report (intercepted mutations, measured token/cost). |
+| **aegis-probe** | Kernel-boundary supervision via eBPF LSM (Linux); portable no-op fallback elsewhere. The eBPF object is a separate, workspace-excluded crate. |
 | **aegis** (bin) | `clap` CLI wiring it all together. |
 
 ### The ReAct engine
@@ -179,6 +211,16 @@ aegis verify [dir]              [--json]   build/test — cargo/go/npm/pytest (a
 aegis replay <id>               [--json]   reconstruct a past run from the ledger
 aegis ledger list               [--json]   list every recorded run
 aegis ledger show <id>          [--json]   one run's metadata, stats & full trajectory
+
+aegis run … --audit                        shadow dry-run: read tools run for real,
+                                            mutating tools are intercepted + journaled
+aegis audit --ledger <db>                  forensic report: intercepted mutations +
+        --price-per-1k <USD>                measured token/cost (cost only from your
+        --runs-per-day <N>                  explicit price/volume inputs)
+aegis resume <id> [--force]                resume a crashed/interrupted run from its
+                                            last journaled step (no re-execution)
+aegis eval  --suite <s> --candidate <db>   regression-test a run vs a baseline suite
+        --output-format <json|junit|pretty>  (exit 1 on regression; JUnit for CI)
 ```
 
 `Ctrl-C` during a run finalizes the ledger and prints the partial trajectory
