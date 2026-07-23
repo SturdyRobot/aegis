@@ -1,13 +1,18 @@
 //! # sturdy-mcp
 //!
 //! A native, async [Model Context Protocol](https://modelcontextprotocol.io)
-//! client speaking JSON-RPC 2.0 over newline-delimited stdio.
+//! client speaking JSON-RPC 2.0 over two transports:
 //!
-//! The wire logic ([`RpcClient`]) is generic over any `AsyncRead`/`AsyncWrite`
-//! pair: a background reader task de-multiplexes responses to per-request
-//! oneshot channels keyed by id, so many calls can be in flight at once. The
-//! [`McpClient`] layer adds the MCP handshake and `tools/*` methods, and
-//! [`McpClient::connect_stdio`] wires it to a server subprocess.
+//! * **stdio** — [`RpcClient`], generic over any `AsyncRead`/`AsyncWrite` pair. A
+//!   background reader task de-multiplexes responses to per-request oneshot
+//!   channels keyed by id, so many calls can be in flight at once.
+//! * **streamable HTTP** — [`HttpTransport`], for remote MCP servers. POSTs
+//!   JSON-RPC and reads either a direct JSON response or an SSE stream, tracking
+//!   the `Mcp-Session-Id` handshake header.
+//!
+//! Both implement the [`Transport`] trait; [`McpClient`] adds the MCP handshake
+//! and `tools/*` methods over either. [`McpClientManager`] connects a fleet of
+//! configured servers ([`McpServerConfig`]) and routes tool calls to the owner.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -48,6 +53,23 @@ impl From<McpError> for HarnessError {
 }
 
 pub type Result<T> = std::result::Result<T, McpError>;
+
+// ── transport abstraction ──
+
+/// The RPC primitive every transport provides: a bidirectional JSON-RPC 2.0 pipe.
+///
+/// [`RpcClient`] implements it over stdio; [`HttpTransport`] over streamable HTTP.
+/// [`McpClient`]'s handshake and `tools/*` methods are written against this trait,
+/// so they work unchanged regardless of how bytes reach the server.
+#[async_trait::async_trait]
+pub trait Transport: Send + Sync {
+    /// Issue a request and await its response.
+    async fn request(&self, method: &str, params: Value) -> Result<Value>;
+    /// Fire a notification (no id, no response awaited).
+    async fn notify(&self, method: &str, params: Value) -> Result<()>;
+    /// Adjust the per-request deadline. No-op for transports without one.
+    fn set_request_timeout(&self, _timeout: Duration) {}
+}
 
 // ── JSON-RPC 2.0 wire types ──
 
@@ -92,8 +114,9 @@ pub struct RpcClient {
     /// Set once the reader task ends (EOF), so new requests fail fast instead of
     /// registering a waiter nobody will ever complete.
     closed: Arc<AtomicBool>,
-    /// Per-request deadline; a silent server can never hang the caller forever.
-    request_timeout: Duration,
+    /// Per-request deadline in ms; a silent server can never hang the caller
+    /// forever. Atomic so it stays adjustable behind a shared `Arc<dyn Transport>`.
+    request_timeout_ms: AtomicU64,
     _reader: tokio::task::JoinHandle<()>,
 }
 
@@ -148,14 +171,15 @@ impl RpcClient {
             pending,
             next_id: AtomicU64::new(1),
             closed,
-            request_timeout: Duration::from_secs(60),
+            request_timeout_ms: AtomicU64::new(60_000),
             _reader: handle,
         }
     }
 
     /// Set the per-request deadline (default 60s).
-    pub fn set_request_timeout(&mut self, timeout: Duration) {
-        self.request_timeout = timeout;
+    pub fn set_request_timeout(&self, timeout: Duration) {
+        self.request_timeout_ms
+            .store(timeout.as_millis() as u64, Ordering::SeqCst);
     }
 
     async fn write_line(&self, bytes: Vec<u8>) -> Result<()> {
@@ -189,7 +213,8 @@ impl RpcClient {
             return Err(e);
         }
 
-        match tokio::time::timeout(self.request_timeout, rx).await {
+        let dur = Duration::from_millis(self.request_timeout_ms.load(Ordering::SeqCst));
+        match tokio::time::timeout(dur, rx).await {
             Ok(Ok(resp)) => {
                 if let Some(err) = resp.error {
                     return Err(McpError::Rpc {
@@ -206,7 +231,7 @@ impl RpcClient {
                 self.pending.lock().unwrap().remove(&id);
                 Err(McpError::Timeout {
                     method: method.to_string(),
-                    secs: self.request_timeout.as_secs(),
+                    secs: dur.as_secs(),
                 })
             }
         }
@@ -221,6 +246,210 @@ impl RpcClient {
             params,
         };
         self.write_line(serde_json::to_vec(&req)?).await
+    }
+}
+
+#[async_trait::async_trait]
+impl Transport for RpcClient {
+    async fn request(&self, method: &str, params: Value) -> Result<Value> {
+        RpcClient::request(self, method, params).await
+    }
+    async fn notify(&self, method: &str, params: Value) -> Result<()> {
+        RpcClient::notify(self, method, params).await
+    }
+    fn set_request_timeout(&self, timeout: Duration) {
+        RpcClient::set_request_timeout(self, timeout);
+    }
+}
+
+// ── streamable HTTP transport ──
+
+/// A [`Transport`] for remote MCP servers over
+/// [streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports).
+///
+/// Each call POSTs a JSON-RPC message; the server answers with either a direct
+/// `application/json` body or a `text/event-stream` (SSE) carrying the response.
+/// The `Mcp-Session-Id` returned by `initialize` is captured and echoed on every
+/// later request.
+pub struct HttpTransport {
+    http: reqwest::Client,
+    url: String,
+    session_id: Mutex<Option<String>>,
+    next_id: AtomicU64,
+    request_timeout_ms: AtomicU64,
+}
+
+impl HttpTransport {
+    /// Build a transport pointed at an MCP endpoint URL. `extra_headers` are sent
+    /// on every request (e.g. `Authorization`).
+    pub fn new(url: impl Into<String>, extra_headers: HashMap<String, String>) -> Result<Self> {
+        let mut headers = reqwest::header::HeaderMap::new();
+        for (k, v) in extra_headers {
+            if let (Ok(name), Ok(val)) = (
+                reqwest::header::HeaderName::from_bytes(k.as_bytes()),
+                reqwest::header::HeaderValue::from_str(&v),
+            ) {
+                headers.insert(name, val);
+            }
+        }
+        let http = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .map_err(|e| McpError::Protocol(format!("building http client: {e}")))?;
+        Ok(HttpTransport {
+            http,
+            url: url.into(),
+            session_id: Mutex::new(None),
+            next_id: AtomicU64::new(1),
+            request_timeout_ms: AtomicU64::new(60_000),
+        })
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_millis(self.request_timeout_ms.load(Ordering::SeqCst))
+    }
+
+    /// POST one JSON-RPC message. `id` is `Some` for requests, `None` for
+    /// notifications. Returns the raw response body text (empty for a 202).
+    async fn post(&self, id: Option<u64>, method: &str, params: Value) -> Result<Option<Value>> {
+        let body = RpcRequest {
+            jsonrpc: "2.0",
+            id,
+            method,
+            params,
+        };
+        let mut req = self
+            .http
+            .post(&self.url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header(
+                reqwest::header::ACCEPT,
+                "application/json, text/event-stream",
+            )
+            .json(&body);
+        if let Some(sid) = self.session_id.lock().unwrap().clone() {
+            req = req.header("mcp-session-id", sid);
+        }
+
+        let resp = tokio::time::timeout(self.timeout(), req.send())
+            .await
+            .map_err(|_| McpError::Timeout {
+                method: method.to_string(),
+                secs: self.timeout().as_secs(),
+            })?
+            .map_err(|e| McpError::Protocol(format!("http request failed: {e}")))?;
+
+        // Capture the session id from the initialize response for reuse.
+        if let Some(sid) = resp
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|v| v.to_str().ok())
+        {
+            *self.session_id.lock().unwrap() = Some(sid.to_string());
+        }
+
+        let status = resp.status();
+        if !status.is_success() {
+            let detail = resp.text().await.unwrap_or_default();
+            return Err(McpError::Protocol(format!(
+                "http {status}: {}",
+                detail.chars().take(200).collect::<String>()
+            )));
+        }
+        // A notification (no id) yields 202 Accepted with no useful body.
+        if id.is_none() {
+            return Ok(None);
+        }
+
+        let ctype = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+
+        let value = if ctype.contains("text/event-stream") {
+            read_sse_response(resp, id.unwrap(), self.timeout()).await?
+        } else {
+            resp.json::<Value>()
+                .await
+                .map_err(|e| McpError::Protocol(format!("decoding json response: {e}")))?
+        };
+        Ok(Some(value))
+    }
+}
+
+/// Read an SSE body until the JSON-RPC response with `want_id` arrives.
+///
+/// SSE frames are blank-line-delimited; we accumulate `data:` payloads per frame,
+/// parse each as JSON, and return the first that is the response we're waiting on.
+async fn read_sse_response(
+    resp: reqwest::Response,
+    want_id: u64,
+    deadline: Duration,
+) -> Result<Value> {
+    use futures_util::StreamExt;
+    let read = async {
+        let mut stream = resp.bytes_stream();
+        let mut buf = String::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| McpError::Protocol(format!("sse read: {e}")))?;
+            buf.push_str(&String::from_utf8_lossy(&chunk));
+            // Process every complete frame (terminated by a blank line).
+            while let Some(idx) = buf.find("\n\n").or_else(|| buf.find("\r\n\r\n")) {
+                let sep = if buf[idx..].starts_with("\n\n") { 2 } else { 4 };
+                let frame: String = buf.drain(..idx + sep).collect();
+                let data: String = frame
+                    .lines()
+                    .filter_map(|l| l.strip_prefix("data:"))
+                    .map(|d| d.strip_prefix(' ').unwrap_or(d))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if data.is_empty() {
+                    continue;
+                }
+                if let Ok(v) = serde_json::from_str::<Value>(&data) {
+                    if v.get("id").and_then(|i| i.as_u64()) == Some(want_id) {
+                        return Ok(v);
+                    }
+                }
+            }
+        }
+        Err(McpError::Protocol(
+            "sse stream ended before a response".into(),
+        ))
+    };
+    tokio::time::timeout(deadline, read)
+        .await
+        .map_err(|_| McpError::Timeout {
+            method: "sse".into(),
+            secs: deadline.as_secs(),
+        })?
+}
+
+#[async_trait::async_trait]
+impl Transport for HttpTransport {
+    async fn request(&self, method: &str, params: Value) -> Result<Value> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let raw = self
+            .post(Some(id), method, params)
+            .await?
+            .ok_or_else(|| McpError::Protocol("empty http response for a request".into()))?;
+        let resp: RpcResponse = serde_json::from_value(raw)?;
+        if let Some(err) = resp.error {
+            return Err(McpError::Rpc {
+                code: err.code,
+                message: err.message,
+            });
+        }
+        Ok(resp.result.unwrap_or(Value::Null))
+    }
+    async fn notify(&self, method: &str, params: Value) -> Result<()> {
+        self.post(None, method, params).await.map(|_| ())
+    }
+    fn set_request_timeout(&self, timeout: Duration) {
+        self.request_timeout_ms
+            .store(timeout.as_millis() as u64, Ordering::SeqCst);
     }
 }
 
@@ -256,11 +485,12 @@ pub struct ServerInfo {
 /// The protocol version this client negotiates.
 pub const PROTOCOL_VERSION: &str = "2024-11-05";
 
-/// A connected MCP client.
+/// A connected MCP client, transport-agnostic (stdio or HTTP).
 pub struct McpClient {
-    rpc: RpcClient,
+    transport: Arc<dyn Transport>,
     /// Kept alive so the server subprocess is killed on drop. Behind a `Mutex`
     /// so the whole client is `Sync` and can be shared as a `dyn ToolExecutor`.
+    /// `None` for HTTP transports (no owned process).
     _child: Mutex<Option<Child>>,
 }
 
@@ -271,14 +501,40 @@ impl McpClient {
         reader: impl AsyncRead + Unpin + Send + 'static,
     ) -> Self {
         McpClient {
-            rpc: RpcClient::new(writer, reader),
+            transport: Arc::new(RpcClient::new(writer, reader)),
             _child: Mutex::new(None),
         }
     }
 
+    /// Wrap any [`Transport`] directly (e.g. an [`HttpTransport`]).
+    pub fn from_transport(transport: Arc<dyn Transport>) -> Self {
+        McpClient {
+            transport,
+            _child: Mutex::new(None),
+        }
+    }
+
+    /// Connect a server described by an [`McpServerConfig`], dispatching on its
+    /// transport (subprocess for stdio, HTTP client for http).
+    pub async fn connect(config: &McpServerConfig) -> Result<Self> {
+        match &config.transport {
+            McpTransport::Stdio { command, args } => {
+                let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+                Self::connect_stdio_env(command, &argv, config.env.as_ref()).await
+            }
+            McpTransport::Http { url } => {
+                let headers = config.env.clone().unwrap_or_default();
+                Ok(Self::from_transport(Arc::new(HttpTransport::new(
+                    url.clone(),
+                    headers,
+                )?)))
+            }
+        }
+    }
+
     /// Set the per-request deadline (default 60s).
-    pub fn set_request_timeout(&mut self, timeout: Duration) {
-        self.rpc.set_request_timeout(timeout);
+    pub fn set_request_timeout(&self, timeout: Duration) {
+        self.transport.set_request_timeout(timeout);
     }
 
     /// Spawn an MCP server subprocess and speak to it over its stdio.
@@ -286,14 +542,27 @@ impl McpClient {
         program: impl AsRef<std::ffi::OsStr>,
         args: &[&str],
     ) -> Result<Self> {
+        Self::connect_stdio_env(program, args, None).await
+    }
+
+    /// Like [`connect_stdio`](Self::connect_stdio) but with extra environment
+    /// variables for the child (e.g. `GITHUB_TOKEN` for the GitHub MCP server).
+    pub async fn connect_stdio_env(
+        program: impl AsRef<std::ffi::OsStr>,
+        args: &[&str],
+        env: Option<&HashMap<String, String>>,
+    ) -> Result<Self> {
         use std::process::Stdio;
-        let mut child = tokio::process::Command::new(program)
-            .args(args)
+        let mut cmd = tokio::process::Command::new(program);
+        cmd.args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()?;
+            .kill_on_drop(true);
+        if let Some(env) = env {
+            cmd.envs(env);
+        }
+        let mut child = cmd.spawn()?;
         let stdin = child
             .stdin
             .take()
@@ -303,19 +572,20 @@ impl McpClient {
             .take()
             .ok_or_else(|| McpError::Protocol("server has no stdout".into()))?;
         Ok(McpClient {
-            rpc: RpcClient::new(stdin, stdout),
+            transport: Arc::new(RpcClient::new(stdin, stdout)),
             _child: Mutex::new(Some(child)),
         })
     }
 
     /// Perform the MCP `initialize` handshake and send `initialized`.
+    #[tracing::instrument(name = "mcp.initialize", skip_all, fields(client = %client_name))]
     pub async fn initialize(&self, client_name: &str) -> Result<ServerInfo> {
         let params = serde_json::json!({
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {},
             "clientInfo": { "name": client_name, "version": env!("CARGO_PKG_VERSION") },
         });
-        let result = self.rpc.request("initialize", params).await?;
+        let result = self.transport.request("initialize", params).await?;
         let info = ServerInfo {
             protocol_version: result
                 .get("protocolVersion")
@@ -333,29 +603,33 @@ impl McpClient {
                 .unwrap_or("0.0.0")
                 .to_string(),
         };
-        self.rpc
+        self.transport
             .notify("notifications/initialized", Value::Null)
             .await?;
         Ok(info)
     }
 
-    /// List the tools the server exposes.
+    /// List the tools the server exposes (auto-discovery).
+    #[tracing::instrument(name = "mcp.list_tools", skip_all, fields(tool_count = tracing::field::Empty))]
     pub async fn list_tools(&self) -> Result<Vec<McpTool>> {
         let result = self
-            .rpc
+            .transport
             .request("tools/list", serde_json::json!({}))
             .await?;
         let tools = result
             .get("tools")
             .cloned()
             .ok_or_else(|| McpError::Protocol("tools/list missing `tools`".into()))?;
-        Ok(serde_json::from_value(tools)?)
+        let tools: Vec<McpTool> = serde_json::from_value(tools)?;
+        tracing::Span::current().record("tool_count", tools.len());
+        Ok(tools)
     }
 
     /// Invoke a tool by name.
+    #[tracing::instrument(name = "mcp.call_tool", skip_all, fields(tool = %name, is_error = tracing::field::Empty))]
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<ToolResult> {
         let params = serde_json::json!({ "name": name, "arguments": arguments });
-        let result = self.rpc.request("tools/call", params).await?;
+        let result = self.transport.request("tools/call", params).await?;
         let is_error = result
             .get("isError")
             .and_then(|v| v.as_bool())
@@ -372,6 +646,7 @@ impl McpClient {
                     .join("\n")
             })
             .unwrap_or_default();
+        tracing::Span::current().record("is_error", is_error);
         Ok(ToolResult {
             text,
             is_error,
@@ -385,6 +660,153 @@ impl McpClient {
 /// observation* the agent can react to, not a fatal harness error.
 #[async_trait::async_trait]
 impl sturdy_core::ToolExecutor for McpClient {
+    async fn execute(
+        &self,
+        call: &sturdy_core::ToolCall,
+    ) -> sturdy_core::Result<sturdy_core::Observation> {
+        let result = self
+            .call_tool(&call.name, call.arguments.clone())
+            .await
+            .map_err(sturdy_core::HarnessError::from)?;
+        Ok(if result.is_error {
+            sturdy_core::Observation::error(result.text)
+        } else {
+            sturdy_core::Observation::ok(result.text)
+        })
+    }
+}
+
+// ── multi-server configuration + manager ──
+
+/// How to reach one MCP server.
+#[derive(Debug, Clone)]
+pub enum McpTransport {
+    /// Launch a server subprocess and speak over its stdio.
+    Stdio { command: String, args: Vec<String> },
+    /// Connect to a remote server over streamable HTTP.
+    Http { url: String },
+}
+
+/// A named MCP server to connect. `env` supplies child environment variables for
+/// stdio servers, or extra HTTP headers for http servers.
+#[derive(Debug, Clone)]
+pub struct McpServerConfig {
+    pub name: String,
+    pub transport: McpTransport,
+    pub env: Option<HashMap<String, String>>,
+}
+
+/// One connected, initialized server.
+struct ManagedServer {
+    name: String,
+    client: McpClient,
+}
+
+/// Connects a fleet of MCP servers, aggregates their tools, and routes each tool
+/// call to the server that owns it. Implements [`sturdy_core::ToolExecutor`] so
+/// the ReAct engine can drive every server's tools as a single toolset.
+pub struct McpClientManager {
+    servers: Vec<ManagedServer>,
+    /// tool name → index into `servers`. On a name collision the first wins.
+    routes: HashMap<String, usize>,
+    tools: Vec<McpTool>,
+    /// When set, each tool call is journaled to the ledger for the given run.
+    ledger: Option<(Arc<sturdy_ledger::Ledger>, sturdy_core::TaskId)>,
+}
+
+impl McpClientManager {
+    /// Connect and initialize every configured server, discovering its tools. A
+    /// server that fails to connect is logged and skipped — one bad server can't
+    /// sink the whole fleet.
+    #[tracing::instrument(name = "mcp.connect_all", skip_all, fields(configured = configs.len(), connected = tracing::field::Empty))]
+    pub async fn connect(configs: &[McpServerConfig], client_name: &str) -> Result<Self> {
+        let mut servers = Vec::new();
+        let mut routes = HashMap::new();
+        let mut tools = Vec::new();
+        for cfg in configs {
+            match Self::connect_one(cfg, client_name).await {
+                Ok((client, server_tools)) => {
+                    let idx = servers.len();
+                    for t in &server_tools {
+                        routes.entry(t.name.clone()).or_insert(idx);
+                    }
+                    tools.extend(server_tools);
+                    servers.push(ManagedServer {
+                        name: cfg.name.clone(),
+                        client,
+                    });
+                }
+                Err(e) => tracing::warn!(server = %cfg.name, error = %e, "MCP server skipped"),
+            }
+        }
+        tracing::Span::current().record("connected", servers.len());
+        Ok(McpClientManager {
+            servers,
+            routes,
+            tools,
+            ledger: None,
+        })
+    }
+
+    async fn connect_one(
+        cfg: &McpServerConfig,
+        client_name: &str,
+    ) -> Result<(McpClient, Vec<McpTool>)> {
+        let client = McpClient::connect(cfg).await?;
+        client.initialize(client_name).await?;
+        let tools = client.list_tools().await?;
+        Ok((client, tools))
+    }
+
+    /// Journal every subsequent tool call as an `McpToolExecution` event on `run_id`.
+    pub fn with_ledger(
+        mut self,
+        ledger: Arc<sturdy_ledger::Ledger>,
+        run_id: sturdy_core::TaskId,
+    ) -> Self {
+        self.ledger = Some((ledger, run_id));
+        self
+    }
+
+    /// Every tool discovered across all connected servers.
+    pub fn tools(&self) -> &[McpTool] {
+        &self.tools
+    }
+
+    /// How many servers are connected.
+    pub fn server_count(&self) -> usize {
+        self.servers.len()
+    }
+
+    /// Route a tool call to the server that advertised it, journaling it if a
+    /// ledger is attached.
+    #[tracing::instrument(name = "mcp.route_call", skip_all, fields(tool = %name))]
+    pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<ToolResult> {
+        let idx = *self.routes.get(name).ok_or_else(|| {
+            McpError::Protocol(format!("no connected MCP server exposes tool `{name}`"))
+        })?;
+        let result = self.servers[idx]
+            .client
+            .call_tool(name, arguments.clone())
+            .await?;
+        if let Some((ledger, run_id)) = &self.ledger {
+            let event = sturdy_ledger::Event::McpToolExecution {
+                server: self.servers[idx].name.clone(),
+                tool: name.to_string(),
+                arguments,
+                output: result.text.clone(),
+                is_error: result.is_error,
+            };
+            if let Err(e) = ledger.record_event(*run_id, &event) {
+                tracing::warn!(error = %e, "failed to journal MCP tool execution");
+            }
+        }
+        Ok(result)
+    }
+}
+
+#[async_trait::async_trait]
+impl sturdy_core::ToolExecutor for McpClientManager {
     async fn execute(
         &self,
         call: &sturdy_core::ToolCall,
@@ -498,7 +920,7 @@ mod tests {
             while let Ok(Some(_)) = lines.next_line().await {} // drain, never answer
         });
 
-        let mut client = McpClient::from_streams(c2s_client, s2c_client);
+        let client = McpClient::from_streams(c2s_client, s2c_client);
         client.set_request_timeout(Duration::from_millis(150));
         let err = client.initialize("t").await.unwrap_err();
         assert!(matches!(err, McpError::Timeout { .. }), "got {err:?}");

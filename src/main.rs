@@ -381,10 +381,7 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
             let client = McpClient::connect_stdio(&program, &args)
                 .await
                 .context("launching MCP server")?;
-            let info = client
-                .initialize("aegis")
-                .await
-                .context("MCP initialize")?;
+            let info = client.initialize("aegis").await.context("MCP initialize")?;
             let mcp_tools = client.list_tools().await.context("MCP tools/list")?;
             if !json {
                 println!(

@@ -60,7 +60,40 @@ CREATE TABLE IF NOT EXISTS steps (
     PRIMARY KEY (task_id, idx),
     FOREIGN KEY (task_id) REFERENCES runs(task_id)
 );
+CREATE TABLE IF NOT EXISTS events (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id   TEXT NOT NULL,
+    ts_ms     INTEGER NOT NULL,
+    category  TEXT NOT NULL,  -- e.g. 'mcp_tool_execution'
+    payload   TEXT NOT NULL,  -- JSON-encoded Event
+    FOREIGN KEY (task_id) REFERENCES runs(task_id)
+);
 "#;
+
+/// A categorized, out-of-band event journaled alongside the step trail. Steps are
+/// the ReAct backbone; events capture side-channel activity worth auditing on its
+/// own — currently tool calls proxied through external MCP servers.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(tag = "kind")]
+pub enum Event {
+    /// A tool call routed to an external MCP server.
+    McpToolExecution {
+        server: String,
+        tool: String,
+        arguments: serde_json::Value,
+        output: String,
+        is_error: bool,
+    },
+}
+
+impl Event {
+    /// A short, stable category label for the `category` column and queries.
+    pub fn category(&self) -> &'static str {
+        match self {
+            Event::McpToolExecution { .. } => "mcp_tool_execution",
+        }
+    }
+}
 
 fn now_ms() -> i64 {
     SystemTime::now()
@@ -167,6 +200,36 @@ impl Ledger {
             return Err(LedgerError::NotFound(task_id));
         }
         Ok(())
+    }
+
+    /// Append a categorized [`Event`] (e.g. an MCP tool execution). Creates a
+    /// placeholder run row if needed so the event is never silently lost.
+    #[tracing::instrument(name = "ledger.op", skip_all, fields(event_type = "record_event", run_id = %task_id, category = event.category()))]
+    pub fn record_event(&self, task_id: TaskId, event: &Event) -> Result<()> {
+        let payload = serde_json::to_string(event)?;
+        let conn = self.lock()?;
+        conn.execute(
+            "INSERT OR IGNORE INTO runs (task_id, goal, started_ms, status)
+             VALUES (?1, '', ?2, 'running')",
+            rusqlite::params![task_id.to_string(), now_ms()],
+        )?;
+        conn.execute(
+            "INSERT INTO events (task_id, ts_ms, category, payload) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![task_id.to_string(), now_ms(), event.category(), payload],
+        )?;
+        Ok(())
+    }
+
+    /// Every event recorded for a run, in insertion order.
+    pub fn events(&self, task_id: TaskId) -> Result<Vec<Event>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare("SELECT payload FROM events WHERE task_id = ?1 ORDER BY id")?;
+        let rows = stmt.query_map([task_id.to_string()], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(serde_json::from_str(&row?)?);
+        }
+        Ok(out)
     }
 
     /// Reconstruct a trajectory from the journal, in step order.
