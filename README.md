@@ -1,7 +1,7 @@
 # Aegis
 
 [![CI](https://github.com/SturdyRobot/aegis/actions/workflows/ci.yml/badge.svg)](https://github.com/SturdyRobot/aegis/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: BUSL-1.1](https://img.shields.io/badge/license-BUSL--1.1-orange.svg)](LICENSE)
 
 A deterministic AI-agent execution and verification harness, written in Rust.
 
@@ -247,4 +247,15 @@ A TUI and richer built-in tools are the remaining niceties.
 
 ## License
 
-MIT
+**[Business Source License 1.1](LICENSE)** (BUSL-1.1) — the same source-available
+model used by HashiCorp, MariaDB, CockroachDB, and Sentry.
+
+- **Free** to read, fork, modify, self-host, and use for any **non-commercial**
+  purpose — personal projects, research, evaluation, and internal non-revenue use.
+- **Commercial / enterprise use requires a paid license.** If Aegis (or a
+  derivative or hosted version) is used in or as part of a for-profit product,
+  service, or internal system, contact **noeljacksonjs@gmail.com** for a
+  commercial license.
+- On the **Change Date (2030-07-23)** each version converts to the **Apache
+  License 2.0** and becomes fully open source.
+
