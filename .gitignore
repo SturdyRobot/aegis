@@ -9,3 +9,6 @@ crates/aegis-bridge/Cargo.lock
 
 # Local MCP client wiring (machine-specific path; documented in README)
 .mcp.json
+
+# macOS Finder droppings
+.DS_Store
