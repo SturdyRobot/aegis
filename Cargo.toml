@@ -82,6 +82,12 @@ tracing-subscriber = { workspace = true }
 indicatif = { workspace = true }
 toml = { workspace = true }
 
+# Optional OpenTelemetry OTLP export — pulled in only under the `otel` feature.
+opentelemetry = { version = "0.32", optional = true }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"], optional = true }
+tracing-opentelemetry = { version = "0.33", optional = true }
+
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
 
@@ -93,3 +99,14 @@ tempfile = { workspace = true }
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+[features]
+default = []
+# Enable OTLP span export to an OpenTelemetry collector (Jaeger/Datadog/Honeycomb).
+# Off by default: zero extra deps, zero runtime cost for plain CLI users.
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]

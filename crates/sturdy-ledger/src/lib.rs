@@ -105,6 +105,7 @@ impl Ledger {
     }
 
     /// Record the start of a run. Idempotent (`INSERT OR REPLACE`).
+    #[tracing::instrument(name = "ledger.op", skip_all, fields(event_type = "begin_run", run_id = %task.id))]
     pub fn begin_run(&self, task: &Task) -> Result<()> {
         let conn = self.lock()?;
         conn.execute(
@@ -121,6 +122,7 @@ impl Ledger {
     /// without it), a placeholder run row is created so the foreign key holds and
     /// the step is never silently lost — the "crashed run still leaves a trail"
     /// guarantee. A later `begin_run` overwrites the placeholder.
+    #[tracing::instrument(name = "ledger.op", skip_all, fields(event_type = "record_step", run_id = %task_id, step_id = step.index))]
     pub fn record_step(&self, task_id: TaskId, step: &Step) -> Result<()> {
         let action = serde_json::to_string(&step.action)?;
         let observation = match &step.observation {
@@ -151,6 +153,7 @@ impl Ledger {
     }
 
     /// Mark a run complete, recording its terminal status and answer.
+    #[tracing::instrument(name = "ledger.op", skip_all, fields(event_type = "finalize", run_id = %task_id))]
     pub fn finalize(&self, task_id: TaskId, outcome: &Outcome) -> Result<()> {
         let (status, answer) = match outcome {
             Outcome::Finished { answer } => ("finished", Some(answer.clone())),

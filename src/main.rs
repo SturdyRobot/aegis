@@ -28,6 +28,8 @@ use sturdy_ledger::Ledger;
 use sturdy_llm::{ChatReasoner, ToolSpec};
 use sturdy_mcp::McpClient;
 
+mod telemetry;
+
 /// A deterministic AI agent execution & verification harness.
 #[derive(Parser)]
 #[command(name = "aegis", version, about, long_about = None)]
@@ -323,13 +325,8 @@ fn reset_sigpipe() {}
 #[tokio::main]
 async fn main() -> Result<()> {
     reset_sigpipe();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
-        .with_target(false)
-        .init();
+    // Held until main returns; on drop it flushes any pending OTLP spans.
+    let _telemetry = telemetry::init();
 
     match Cli::parse().command {
         Command::Run(a) => cmd_run(a).await,
@@ -381,10 +378,7 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
             let client = McpClient::connect_stdio(&program, &args)
                 .await
                 .context("launching MCP server")?;
-            let info = client
-                .initialize("aegis")
-                .await
-                .context("MCP initialize")?;
+            let info = client.initialize("aegis").await.context("MCP initialize")?;
             let mcp_tools = client.list_tools().await.context("MCP tools/list")?;
             if !json {
                 println!(
