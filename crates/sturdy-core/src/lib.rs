@@ -166,4 +166,42 @@ mod tests {
         // 4 steps recorded, then the 5th charge trips the ceiling.
         assert_eq!(traj.len(), 4);
     }
+
+    #[tokio::test]
+    async fn resume_continues_from_prior_trajectory_without_reexecuting() {
+        let task = Task::new("resumable goal");
+        // A run that completed two tool steps before it "crashed".
+        let mut prior = Trajectory::new(task.id);
+        for i in 0..2u32 {
+            prior.push(Step {
+                index: i,
+                thought: Thought("prior".into()),
+                action: Action::Tool(ToolCall::new("noop", serde_json::Value::Null)),
+                observation: Some(Observation::ok("already ran")),
+                tokens: 5,
+                elapsed_ms: 1,
+            });
+        }
+
+        let engine = ReActEngine::new(
+            Arc::new(ScriptedReasoner {
+                tool_calls: 1,
+                seen: AtomicU32::new(0),
+            }),
+            Arc::new(EchoTool),
+            Budget::standard().tracker(),
+        );
+        let (outcome, traj) = engine.resume(&task, prior).await;
+
+        assert!(matches!(outcome, Outcome::Finished { .. }));
+        // 2 prior + 1 new tool + 1 finish; new steps continue the index sequence.
+        assert_eq!(traj.len(), 4);
+        assert_eq!(traj.steps[2].index, 2);
+        assert_eq!(traj.steps[3].index, 3);
+        // Prior steps are preserved verbatim — never re-executed.
+        assert_eq!(
+            traj.steps[0].observation.as_ref().unwrap().content,
+            "already ran"
+        );
+    }
 }
