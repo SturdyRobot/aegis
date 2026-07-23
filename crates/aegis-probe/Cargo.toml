@@ -1,0 +1,30 @@
+[package]
+name = "aegis-probe"
+description = "Kernel-level process supervision for Aegis via eBPF LSM (Linux), with a portable no-op fallback."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sturdy-core = { workspace = true }
+sturdy-ledger = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# The Linux eBPF loader (user-space Aya). Off by default so the default workspace
+# build compiles everywhere (macOS/Windows/Linux) with zero kernel dependencies.
+# Only enabled on Linux, with `--features ebpf`, on a host that has the toolchain.
+[target.'cfg(target_os = "linux")'.dependencies]
+aya = { version = "0.13", optional = true }
+aya-log = { version = "0.2", optional = true }
+tokio = { workspace = true, optional = true }
+
+[features]
+default = []
+# Enable the real eBPF LSM enforcer. Requires: Linux ≥5.7 with CONFIG_BPF_LSM=y
+# and `lsm=...,bpf` on the kernel cmdline, root/CAP_BPF, a nightly toolchain +
+# bpf-linker to build the companion `aegis-probe-ebpf` crate, and CAP_SYS_ADMIN.
+# See BUILD_EBPF.md. NOT exercised by the default CI (which stays kernel-free).
+ebpf = ["dep:aya", "dep:aya-log", "dep:tokio"]

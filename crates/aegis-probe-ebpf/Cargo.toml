@@ -1,0 +1,28 @@
+# Kernel-side eBPF programs for aegis-probe. NOT part of the Aegis workspace
+# (excluded in the root Cargo.toml) — it targets `bpfel-unknown-none`, is no_std,
+# and needs a nightly toolchain + bpf-linker. See ../aegis-probe/BUILD_EBPF.md.
+[package]
+name = "aegis-probe-ebpf"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Pin to the exact versions matching the user-space `aya` in aegis-probe.
+aya-ebpf = "0.1"
+aya-log-ebpf = "0.1"
+
+[[bin]]
+name = "aegis-probe-ebpf"
+path = "src/main.rs"
+
+# The BPF verifier rejects debug-shaped code; always optimize.
+[profile.dev]
+opt-level = 3
+debug = false
+overflow-checks = false
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
