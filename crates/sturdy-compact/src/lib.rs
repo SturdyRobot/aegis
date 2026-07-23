@@ -181,6 +181,16 @@ impl Compactor {
 
     /// Produce a structural outline: every signature kept, every function body
     /// replaced with a one-line placeholder recording how much was elided.
+    #[tracing::instrument(
+        name = "compact.outline",
+        skip_all,
+        fields(
+            language = ?self.language,
+            files_compacted = 1,
+            tokens_saved = tracing::field::Empty,
+            elided_bodies = tracing::field::Empty,
+        )
+    )]
     pub fn outline(&mut self, source: &str) -> Result<CompactResult> {
         let tree = self
             .parser
@@ -202,12 +212,21 @@ impl Compactor {
         }
         out.push_str(&source[pos..]);
 
-        Ok(CompactResult {
+        let result = CompactResult {
             original_tokens: estimate_tokens(source),
             compacted_tokens: estimate_tokens(&out),
             elided_bodies: edits.len(),
             text: out,
-        })
+        };
+        let span = tracing::Span::current();
+        span.record(
+            "tokens_saved",
+            result
+                .original_tokens
+                .saturating_sub(result.compacted_tokens) as u64,
+        );
+        span.record("elided_bodies", result.elided_bodies as u64);
+        Ok(result)
     }
 
     /// Return `source` untouched if it already fits `max_tokens`; otherwise

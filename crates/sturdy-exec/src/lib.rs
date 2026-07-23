@@ -144,8 +144,28 @@ async fn join_reader(
     }
 }
 
+/// A short, stable digest of a command's arguments — recorded on traces so a
+/// tool invocation can be correlated without logging (possibly sensitive) argv.
+fn args_hash(args: &[String]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    args.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
 /// Run `spec` to completion or until its timeout, capturing stdout/stderr. On
 /// timeout the whole process group is killed and `timed_out` is set.
+#[tracing::instrument(
+    name = "tool.exec",
+    skip_all,
+    fields(
+        tool_name = %spec.program,
+        args_hash = %args_hash(&spec.args),
+        timeout_ms = spec.timeout.as_millis() as u64,
+        exit_code = tracing::field::Empty,
+        timed_out = tracing::field::Empty,
+    )
+)]
 pub async fn run(spec: &CommandSpec) -> Result<ProcessOutput> {
     let mut std_cmd = std::process::Command::new(&spec.program);
     std_cmd.args(&spec.args);
@@ -220,6 +240,10 @@ pub async fn run(spec: &CommandSpec) -> Result<ProcessOutput> {
     // returns immediately; the timeout is a last-resort guard against ever hanging.
     let stdout = join_reader(&spec.program, out_task).await?;
     let stderr = join_reader(&spec.program, err_task).await?;
+
+    let span = tracing::Span::current();
+    span.record("exit_code", code.unwrap_or(-1));
+    span.record("timed_out", timed_out);
 
     Ok(ProcessOutput {
         code,

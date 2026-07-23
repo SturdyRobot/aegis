@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
+use tracing::Instrument;
 
 use crate::budget::BudgetTracker;
 use crate::error::{HarnessError, Result};
@@ -168,11 +169,25 @@ impl ReActEngine {
         }
     }
 
+    #[tracing::instrument(
+        name = "react.run",
+        skip_all,
+        fields(agent_id = %task.id, max_steps = self.budget.budget().max_steps)
+    )]
     async fn run_inner(&self, task: &Task, trajectory: &mut Trajectory) -> Result<Outcome> {
         let mut index: u32 = 0;
         loop {
             let mut sm = StateMachine::new(); // fresh cycle per step
             let started = Instant::now();
+
+            // One span per ReAct step; the Think/Act awaits below nest under it,
+            // so a trace reads as run → step → {llm, tool}.
+            let step_span = tracing::info_span!(
+                "react.step",
+                step_id = index,
+                tokens_used = self.budget.tokens_used(),
+                steps_used = self.budget.steps_used(),
+            );
 
             // Budget gates fire *before* any expensive work.
             self.budget.check_deadline()?;
@@ -182,6 +197,7 @@ impl ReActEngine {
             let decision = self
                 .budget
                 .run_within(self.reasoner.next_action(task, trajectory))
+                .instrument(step_span.clone())
                 .await?;
             self.budget.charge_tokens(decision.tokens)?;
             sm.advance(Phase::Act)?;
@@ -193,7 +209,11 @@ impl ReActEngine {
                     (None, Some(answer.clone()))
                 }
                 Action::Tool(call) => {
-                    let obs = self.budget.run_within(self.tools.execute(call)).await?;
+                    let obs = self
+                        .budget
+                        .run_within(self.tools.execute(call))
+                        .instrument(step_span.clone())
+                        .await?;
                     sm.advance(Phase::Observe)?;
                     (Some(obs), None)
                 }
