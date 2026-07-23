@@ -131,3 +131,58 @@ fn replay_malformed_id_errors() {
         .failure()
         .stderr(predicate::str::contains("not a valid task id"));
 }
+
+/// Regression: a `tools/call` in flight when stdin closes must still get its
+/// response written. Dispatching tool calls onto their own tasks (so a slow run
+/// can't block the reader) originally let the runtime cancel them at shutdown,
+/// silently dropping a response for work that had already completed.
+#[test]
+fn mcp_writes_responses_for_calls_in_flight_when_stdin_closes() {
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("ledger.sqlite");
+
+    let requests = format!(
+        "{}\n{}\n",
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": { "name": "aegis_audit", "arguments": { "db": db.to_str().unwrap() } }
+        })
+    );
+
+    let out = aegis().arg("mcp").write_stdin(requests).assert().success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+
+    let ids: Vec<u64> = stdout
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter_map(|v| v.get("id").and_then(|i| i.as_u64()))
+        .collect();
+
+    assert!(
+        ids.contains(&1),
+        "initialize must be answered; got {stdout}"
+    );
+    assert!(
+        ids.contains(&2),
+        "the tool call's response must survive stdin closing; got {stdout}"
+    );
+}
+
+/// The MCP handshake gates tool traffic: `tools/list` before `initialize` is an
+/// error, not a silent success.
+#[test]
+fn mcp_rejects_tool_traffic_before_initialize() {
+    let out = aegis()
+        .arg("mcp")
+        .write_stdin("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n")
+        .assert()
+        .success();
+    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let v: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    assert_eq!(
+        v["error"]["code"], -32002,
+        "expected not-initialized; got {stdout}"
+    );
+}
