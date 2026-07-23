@@ -65,6 +65,9 @@ Aegis is a small workspace of composable crates, each a clean trait implementati
   budgets) and kernel-boundary supervision (`aegis-probe`: eBPF LSM, Linux).
 - **OpenTelemetry** (`--features otel`) — export execution spans to
   Jaeger/Datadog/Honeycomb; off by default, zero cost otherwise.
+- **Python bindings** (`aegis-bridge` → `pip install aegis-rt`) — call the AST
+  compactor, tool classifier, policy matcher, and forensic audit from Python. A
+  `maturin`-built abi3 wheel; a separate, workspace-excluded crate.
 
 ## Install
 
