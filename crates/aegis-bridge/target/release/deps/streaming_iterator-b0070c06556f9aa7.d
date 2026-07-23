@@ -1,0 +1,9 @@
+/private/tmp/claude-502/-Users-noelwork-Documents/78c71fd4-085b-4d5d-8c30-7319f37c1ffb/scratchpad/aegis/crates/aegis-bridge/target/release/deps/streaming_iterator-b0070c06556f9aa7.d: /Users/noelwork/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/streaming-iterator-0.1.9/src/lib.rs /Users/noelwork/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/streaming-iterator-0.1.9/src/slice.rs /Users/noelwork/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/streaming-iterator-0.1.9/src/sources.rs
+
+/private/tmp/claude-502/-Users-noelwork-Documents/78c71fd4-085b-4d5d-8c30-7319f37c1ffb/scratchpad/aegis/crates/aegis-bridge/target/release/deps/libstreaming_iterator-b0070c06556f9aa7.rlib: /Users/noelwork/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/streaming-iterator-0.1.9/src/lib.rs /Users/noelwork/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/streaming-iterator-0.1.9/src/slice.rs /Users/noelwork/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/streaming-iterator-0.1.9/src/sources.rs
+
+/private/tmp/claude-502/-Users-noelwork-Documents/78c71fd4-085b-4d5d-8c30-7319f37c1ffb/scratchpad/aegis/crates/aegis-bridge/target/release/deps/libstreaming_iterator-b0070c06556f9aa7.rmeta: /Users/noelwork/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/streaming-iterator-0.1.9/src/lib.rs /Users/noelwork/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/streaming-iterator-0.1.9/src/slice.rs /Users/noelwork/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/streaming-iterator-0.1.9/src/sources.rs
+
+/Users/noelwork/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/streaming-iterator-0.1.9/src/lib.rs:
+/Users/noelwork/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/streaming-iterator-0.1.9/src/slice.rs:
+/Users/noelwork/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/streaming-iterator-0.1.9/src/sources.rs:
