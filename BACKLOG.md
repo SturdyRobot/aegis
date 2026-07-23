@@ -1,102 +1,74 @@
-# Aegis — Backlog & "To Do Later"
+# Aegis — Backlog & Roadmap
 
-Ranked, honest triage of proposed features. Verdicts weigh **effort**, **real
-value** (not marketing), and — because this repo doubles as a portfolio —
-**whether it can actually be built and verified**, not just claimed.
-
-Legend: 🚀 build soon · 🔧 build, scoped · 🅿️ parked (needs special env) · 🛑 skip
+Legend: ✅ shipped · 🚀 do next · ⏳ later · 🛑 skip (for now)
 
 ---
 
-## Deferred from the feature sprint
+## ✅ Shipped (on `main`, all tests green)
 
-### 🅿️ aegis-web — in-browser WASM agent (hero demo for sturdyrobot.io)
-Compile `aegis-core` to `wasm32-unknown-unknown` and expose a `WasmAegisAgent`
-via `wasm-bindgen` so visitors run a live agent in the retro terminal.
-- **Value:** high — a click-and-watch demo is the single best recruiter hook.
-- **Why parked:** real work + only partially verifiable here. `aegis-core` pulls
-  **tokio** and **uuid**, which don't cleanly target `wasm32`; needs feature-gating
-  (tokio → `sync`/`macros` only, `uuid` → `js` backend), a wasm-only demo reasoner
-  (no `reqwest`/process tools), and an in-memory `WasmLedger`. No `wasm-pack`
-  installed locally, so the final bundle can't be proven without setup.
-- **When:** its own focused pass. Add wasm target → `cargo check --target
-  wasm32-unknown-unknown` → build the demo reasoner → `wasm-pack build --target
-  web` → drop the glue into the Vite frontend.
+The core runtime and the whole trust/ops surface are done:
+
+- **ReAct core** — hard token/step/wall-clock budgets, validated state machine,
+  byte-for-byte SQLite replay.
+- **Shadow-Guard audit** (`aegis run --audit` + `aegis audit`) — zero-risk dry-run
+  of mutating tools + forensic ROI/security report.
+- **Human-in-the-loop** (`aegis run --hitl`) — pause + approve each mutation.
+- **Crash recovery** (`aegis resume`) — continue from the last journaled step.
+- **Subagent mesh** (`aegis-mesh`) — bounded, isolated, contained failures.
+- **MCP client** (`aegis-mcp`) — stdio **and** streamable HTTP.
+- **Regression harness** (`aegis eval`) — JUnit + CI exit codes.
+- **AST compaction** + **content-hashed cache** (`aegis-cache`).
+- **Guardrails** — `aegis-policy` (user-space) + `aegis-probe` (eBPF LSM, Linux).
+- **OpenTelemetry** export (`--features otel`).
+- **Python bindings** (`aegis-bridge` → `pip install aegis-rt`) — verified on
+  CPython 3.14 (see below).
+
+---
+
+## Language reach — the roadmap
+
+### ✅ 1. Python (`aegis-bridge` / maturin) — SHIPPED
+`pip install aegis-rt`. Python is the king of AI — this gets Aegis into 80%+ of
+real-world AI pipelines. Exposes AST compaction, content hashing, tool
+classification, the policy matcher, and the forensic audit as an **abi3 wheel**
+(one wheel, CPython ≥3.9). Verified end-to-end with a real `import aegis_rt`.
+*Follow-on:* async agent execution + subagent supervision from Python.
+
+### 🚀 2. WebAssembly (`aegis-web`) — DO NEXT
+Powers the live in-browser terminal on **sturdyrobot.io** — the visual showpiece
+for recruiters, investors, and engineers. Needs `wasm-pack` + making `aegis-core`
+wasm-clean (feature-gate tokio/uuid, a wasm reasoner, an in-memory ledger). The
+highest-leverage item for the hiring goal specifically (click-and-watch demo).
+
+### ⏳ 3. TypeScript (`napi-rs`) — POST-LAUNCH
+`npm install aegis-rt`. TypeScript/Node.js is the second-largest AI ecosystem
+(Vercel AI SDK, LangChain.js). Build **after** the Python release is stable and
+only if demand shows up.
+
+### 🛑 4. Everyone else (Go, Java, C#, …) — DON'T build native bindings
+Aegis already speaks **MCP over stdio and HTTP**. A Go/Java/C# team runs the
+`aegis` binary as a background process and sends JSON-RPC/MCP requests — **$0
+additional code**. The daemon covers every other language for free.
+
+> **Golden rule:** only write a custom native binding when demand forces it. The
+> day a Fortune 500 shows up with a signed contract that says "we buy Aegis today
+> if you ship a native Java SDK" is the day you build the Java binding — not
+> before. Python + WASM + the CLI/MCP daemon covers ~99% of use cases.
+
+---
+
+## Other parked
 
 ### 🛑 aegis-zk — SP1 zkVM execution proofs
-Prove a run obeyed compliance policy without revealing prompts/PII.
-- **Verdict:** skip unless there's a real SP1 host to build and verify on.
-- **Why:** no SP1 toolchain locally; `sp1-sdk` is a massive, network-bound
-  dependency that would bloat and likely break CI on both legs; even a *mock*
-  proof can't be run here. Shipping unverified cryptographic-proof code to a
-  public repo is a **credibility risk** — an engineer who sees it was never run
-  trusts the whole repo less. Only worth it once you can generate + verify a real
-  proof end-to-end.
+Zero-knowledge proof of policy-compliant execution. Skip until there's a real SP1
+host to *generate and verify* a proof on — `sp1-sdk` is a massive dep and can't be
+validated in the current environment. Shipping unverified crypto code is a
+credibility risk.
 
 ---
 
-## Red-team triage (evaluated)
-
-The red-team writeup is genuinely good — it does the real "bullshit check." I
-agree with almost all of it. My verdicts, with the engineering nuance that
-matters:
-
-### 🚀 `aegis resume <RUN_ID>` — crash recovery
-- **Agree: build, near-free.** The ledger already event-sources every step, so
-  resume = read the last committed step + boot the ReAct loop forward.
-- **The one real design point (theirs, and it's the crux):** *idempotency.* Never
-  blindly replay the last action — if the crash happened mid tool-call (sent a
-  Slack message, charged a card), replaying double-executes it. Resume must start
-  **after the last fully-journaled step**, and tool actions need an idempotency
-  story: mark tools pure/idempotent vs. side-effecting, and for side-effecting
-  ones require `--force` or a confirmation before re-running. That's the actual
-  work; the plumbing is trivial.
-- **Verifiable now:** yes, fully (pure ledger + core, macOS-friendly).
-
-### 🔧 `aegis-cache` — deterministic AST/tool caching (NOT LLM responses)
-- **Strong agree, exactly as scoped.** Do **not** cache LLM responses (semantic
-  cache = stale/hallucinated answers in prod — a real disaster). **Do** cache
-  Tree-sitter compaction keyed by `sha256(file_contents)` in SQLite: unchanged
-  file → return the cached skeleton, skip the parser.
-- Fits perfectly on top of `sturdy-compact` + `sturdy-ledger` you already have.
-  Low effort, deterministic, safe. **Verifiable now.**
-
-### 🔧 `aegis-policy` — lightweight user-space guardrails (NOT OPA/Rego)
-- **Strong agree.** Skip OPA/Rego (heavy WASM/C bloat, against the Rust ethos).
-  Write a native matcher over `aegis-policy.toml`: `blocked_tools`,
-  `regex_pii_redaction`, `max_budget_per_run`.
-- **Note:** complements `aegis-probe` (kernel enforcement) — this is the
-  *user-space* policy layer, portable and always-on, no privileges needed.
-- Low effort, **verifiable now.**
-
-### 🚀 `aegis-bridge` — PyO3 Python bindings
-- **Agree it's high-reach — with one honest correction to its framing.** "15×
-  faster" is nonsense (a 1.5s LLM call dwarfs 2ms of Rust overhead); the real win
-  is **distribution**: `pip install aegis-rt` puts subagent supervision, the AST
-  compactor, and the SQLite event log into every FastAPI/Python codebase without a
-  rewrite. That's the reach that matters.
-- **Effort reality:** medium-to-more. Good cross-platform wheels (manylinux +
-  macOS + Windows via `maturin`, plus a released PyPI package) is real packaging
-  work, and it adds a Python API surface to maintain. Higher effort than the
-  writeup's "low." Worth it **if** Python adoption is a goal.
-
----
-
-## Recommended order (most leverage, least bloat, verifiable-first)
-
-1. **`aegis resume`** — nearly free on the existing ledger; get the idempotency
-   guard right. (🚀, verifiable now)
-2. **`aegis-cache`** (AST + file-hash) — small, deterministic, safe, builds on
-   `sturdy-compact`. (🔧, verifiable now)
-3. **`aegis-policy`** (TOML matcher) — small, portable, complements `aegis-probe`.
-   (🔧, verifiable now)
-4. **`aegis-bridge`** (PyO3) — highest reach, but real packaging effort; do it when
-   chasing Python adoption. (🚀, verifiable with the wasm/py toolchain)
-5. **`aegis-web`** (WASM demo) — the recruiter hero demo; its own focused pass.
-   (🅿️)
-6. **`aegis-zk`** — only with a real SP1 host to verify on. (🛑 for now)
-
-> Note vs. the writeup's "resume + PyO3" two-punch: I'd keep **resume** at #1 but
-> slot **cache** and **policy** ahead of **PyO3** — they're lower-effort AND fully
-> verifiable on this machine today, whereas PyO3's value is gated on cross-platform
-> wheel packaging.
+## Recommended order
+1. **WASM demo** (`aegis-web`) — the hiring showpiece. 🚀
+2. **TypeScript** (`napi-rs`) — after Python is stable, on demand. ⏳
+3. Everything else → the **MCP daemon**, not a binding. 🛑
+4. **aegis-zk** — only with an SP1 host. 🛑
