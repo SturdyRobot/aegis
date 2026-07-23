@@ -102,6 +102,15 @@ pub enum Event {
         reason: String,
         tokens_used: u64,
     },
+    /// A mutating tool call intercepted in shadow/audit mode: the agent *intended*
+    /// to run it, but Aegis skipped physical execution (nothing was touched).
+    ToolExecutionAudited {
+        tool: String,
+        /// Risk classification: "medium" | "high".
+        risk: String,
+        /// The arguments the agent intended to pass.
+        arguments: serde_json::Value,
+    },
 }
 
 impl Event {
@@ -111,6 +120,7 @@ impl Event {
             Event::McpToolExecution { .. } => "mcp_tool_execution",
             Event::KernelSecurityViolation { .. } => "kernel_security_violation",
             Event::SubagentFailed { .. } => "subagent_failed",
+            Event::ToolExecutionAudited { .. } => "tool_execution_audited",
         }
     }
 }
