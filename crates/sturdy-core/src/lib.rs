@@ -1,6 +1,6 @@
 //! # sturdy-core
 //!
-//! The dependency root of SturdyHarness: domain models, the ReAct execution
+//! The dependency root of Aegis: domain models, the ReAct execution
 //! engine and its state machine, hard budget enforcement, and the shared error
 //! taxonomy. Everything here is pure (no I/O, no network) and heavily tested,
 //! so the satellite crates can build on a stable, verifiable core.

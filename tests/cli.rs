@@ -1,17 +1,17 @@
-//! End-to-end tests of the `sturdy` binary, locking the CLI surface.
+//! End-to-end tests of the `aegis` binary, locking the CLI surface.
 
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
 use tempfile::tempdir;
 
-fn sturdy() -> Command {
-    Command::cargo_bin("sturdy").unwrap()
+fn aegis() -> Command {
+    Command::cargo_bin("aegis").unwrap()
 }
 
 #[test]
 fn help_lists_subcommands() {
-    sturdy()
+    aegis()
         .arg("--help")
         .assert()
         .success()
@@ -30,7 +30,7 @@ fn compact_rust_file_elides_bodies() {
         "pub fn big() -> i32 {\n    let mut a = 0;\n    for i in 0..100 { a += i; }\n    a\n}\n",
     )
     .unwrap();
-    sturdy()
+    aegis()
         .arg("compact")
         .arg(&f)
         .assert()
@@ -50,7 +50,7 @@ fn compact_detects_python_from_extension() {
         "def big(n):\n    total = 0\n    for i in range(n):\n        total += i\n    return total\n",
     )
     .unwrap();
-    sturdy()
+    aegis()
         .arg("compact")
         .arg(&f)
         .assert()
@@ -64,7 +64,7 @@ fn compact_unknown_extension_errors() {
     let dir = tempdir().unwrap();
     let f = dir.path().join("data.txt");
     fs::write(&f, "hello").unwrap();
-    sturdy()
+    aegis()
         .arg("compact")
         .arg(&f)
         .assert()
@@ -76,7 +76,7 @@ fn compact_unknown_extension_errors() {
 fn run_json_finishes_and_journals() {
     let dir = tempdir().unwrap();
     let db = dir.path().join("l.sqlite");
-    let assert = sturdy()
+    let assert = aegis()
         .args(["run", "check the toolchain", "--json", "--db"])
         .arg(&db)
         .assert()
@@ -89,7 +89,7 @@ fn run_json_finishes_and_journals() {
 
     // The same run is now replayable from the ledger.
     let task_id = v["task_id"].as_str().unwrap();
-    sturdy()
+    aegis()
         .args(["replay", task_id, "--db"])
         .arg(&db)
         .assert()
@@ -100,7 +100,7 @@ fn run_json_finishes_and_journals() {
 #[test]
 fn verify_non_project_fails() {
     let dir = tempdir().unwrap();
-    sturdy()
+    aegis()
         .arg("verify")
         .arg(dir.path())
         .assert()
@@ -112,7 +112,7 @@ fn verify_non_project_fails() {
 fn ledger_list_on_empty_db() {
     let dir = tempdir().unwrap();
     let db = dir.path().join("l.sqlite");
-    sturdy()
+    aegis()
         .args(["ledger", "list", "--db"])
         .arg(&db)
         .assert()
@@ -124,7 +124,7 @@ fn ledger_list_on_empty_db() {
 fn replay_malformed_id_errors() {
     let dir = tempdir().unwrap();
     let db = dir.path().join("l.sqlite");
-    sturdy()
+    aegis()
         .args(["replay", "not-a-uuid", "--db"])
         .arg(&db)
         .assert()

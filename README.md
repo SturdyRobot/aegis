@@ -1,11 +1,11 @@
-# SturdyHarness
+# Aegis
 
-[![CI](https://github.com/SturdyRobot/sturdy-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/SturdyRobot/sturdy-harness/actions/workflows/ci.yml)
+[![CI](https://github.com/SturdyRobot/aegis/actions/workflows/ci.yml/badge.svg)](https://github.com/SturdyRobot/aegis/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A deterministic AI-agent execution and verification harness, written in Rust.
 
-SturdyHarness sits between an LLM (frontier API or local Ollama) and a real
+Aegis sits between an LLM (frontier API or local Ollama) and a real
 codebase. It drives a **ReAct** agent loop under **hard, enforceable budgets**,
 manages the context window with **AST-aware compaction**, runs tools over the
 **Model Context Protocol**, executes verification in **isolated subprocesses**,
@@ -16,7 +16,7 @@ not on steps, not on wall-clock, and not on a build that forks a runaway child
 process. Every one of those is a hard ceiling here.
 
 ```
-$ sturdy run "assess the toolchain"
+$ aegis run "assess the toolchain"
 ▶ run 4b7ef49c-…
   goal: assess the toolchain
 
@@ -31,7 +31,7 @@ $ sturdy run "assess the toolchain"
 
 ✔ finished: Toolchain verified.
   3 steps · 54 tokens
-  replay with: sturdy replay 4b7ef49c-… --db sturdy.sqlite
+  replay with: aegis replay 4b7ef49c-… --db aegis.sqlite
 ```
 
 (That's the offline demo policy. Add `--model` to drive a real LLM — see below.)
@@ -43,26 +43,26 @@ compiler (`cc`/`clang` on macOS/Linux, MSVC on Windows) — the Tree-sitter
 grammar and bundled SQLite build a little native code. No network is required at
 runtime.
 
-Install the `sturdy` binary straight from GitHub:
+Install the `aegis` binary straight from GitHub:
 
 ```sh
-cargo install --git https://github.com/SturdyRobot/sturdy-harness
+cargo install --git https://github.com/SturdyRobot/aegis
 ```
 
 Or clone and build from source:
 
 ```sh
-git clone https://github.com/SturdyRobot/sturdy-harness
-cd sturdy-harness
-cargo install --path .        # installs `sturdy` into ~/.cargo/bin
-# or just: cargo build --release   → target/release/sturdy
+git clone https://github.com/SturdyRobot/aegis
+cd aegis
+cargo install --path .        # installs `aegis` into ~/.cargo/bin
+# or just: cargo build --release   → target/release/aegis
 ```
 
 Then:
 
 ```sh
-sturdy --help
-sturdy run "assess the toolchain"
+aegis --help
+aegis run "assess the toolchain"
 ```
 
 ## Architecture
@@ -73,7 +73,7 @@ its own errors into the core taxonomy at the boundary.
 
 ```mermaid
 flowchart TD
-    CLI["<b>sturdy</b> (bin)<br/>clap CLI"]
+    CLI["<b>aegis</b> (bin)<br/>clap CLI"]
     Core["<b>sturdy-core</b><br/>domain · ReAct engine<br/>budgets · error taxonomy"]
     Compact["<b>sturdy-compact</b><br/>Tree-sitter compaction"]
     MCP["<b>sturdy-mcp</b><br/>JSON-RPC 2.0 client"]
@@ -102,7 +102,7 @@ flowchart TD
 | **sturdy-exec** | Tokio subprocess runner. Each child leads its own **process group**, so a timeout reaps the whole subtree (`killpg`). Auto-detects and runs the project's verifier (**cargo/go/npm/pytest**) with a cargo **diagnostic interceptor**. |
 | **sturdy-ledger** | Append-only **SQLite** journal. Records each step live via the engine's observer hook and reconstructs any run byte-for-byte (`replay`). |
 | **sturdy-llm** | A `Reasoner` over any **OpenAI-compatible** chat endpoint (OpenAI/Ollama/vLLM/LM Studio) that emits ReAct JSON parsed straight into the engine's `Action` type. |
-| **sturdy** (bin) | `clap` CLI wiring it all together. |
+| **aegis** (bin) | `clap` CLI wiring it all together. |
 
 ### The ReAct engine
 
@@ -142,15 +142,15 @@ OpenAI, vLLM, LM Studio, llama.cpp**:
 
 ```sh
 # Local Ollama (default base URL), built-in shell tool:
-sturdy run "what version of cargo is installed?" --model llama3.1
+aegis run "what version of cargo is installed?" --model llama3.1
 
 # OpenAI (key read from an env var, never the command line):
 OPENAI_API_KEY=sk-... \
-  sturdy run "summarize the crate layout" \
+  aegis run "summarize the crate layout" \
   --model gpt-4o-mini --api-base https://api.openai.com/v1 --api-key-env OPENAI_API_KEY
 
 # Give the agent a real MCP server as its tool source:
-sturdy run "list the Rust files and read main.rs" \
+aegis run "list the Rust files and read main.rs" \
   --model llama3.1 \
   --mcp "npx -y @modelcontextprotocol/server-filesystem ."
 ```
@@ -162,7 +162,7 @@ replay just like the demo path.
 ## CLI
 
 ```
-sturdy run <goal>          Drive an agent under budgets, journaling every step
+aegis run <goal>          Drive an agent under budgets, journaling every step
         --model NAME         LLM to drive the agent (omit → offline demo policy)
         --api-base URL       OpenAI-compatible base URL (default: local Ollama)
         --api-key-env VAR    read the API key from this env var
@@ -170,15 +170,15 @@ sturdy run <goal>          Drive an agent under budgets, journaling every step
         --max-tokens N       token ceiling (default 100k)
         --max-steps N        step ceiling (default 12)
         --max-secs N         wall-clock ceiling (default 120)
-        --db <path>          SQLite ledger (default sturdy.sqlite)
+        --db <path>          SQLite ledger (default aegis.sqlite)
         --config <path>      load defaults from a TOML file
         --json               emit the result as JSON
 
-sturdy compact <file> [--lang L] [--json]   AST compaction (rust/python/js/ts/go)
-sturdy verify [dir]              [--json]   build/test — cargo/go/npm/pytest (auto-detected)
-sturdy replay <id>               [--json]   reconstruct a past run from the ledger
-sturdy ledger list               [--json]   list every recorded run
-sturdy ledger show <id>          [--json]   one run's metadata, stats & full trajectory
+aegis compact <file> [--lang L] [--json]   AST compaction (rust/python/js/ts/go)
+aegis verify [dir]              [--json]   build/test — cargo/go/npm/pytest (auto-detected)
+aegis replay <id>               [--json]   reconstruct a past run from the ledger
+aegis ledger list               [--json]   list every recorded run
+aegis ledger show <id>          [--json]   one run's metadata, stats & full trajectory
 ```
 
 `Ctrl-C` during a run finalizes the ledger and prints the partial trajectory
@@ -187,7 +187,7 @@ for scripting/CI, and piping into `head`/`less` is safe.
 
 ### Configuration
 
-`run` reads defaults from `./sturdy.toml` (or `--config <path>`). Flags override
+`run` reads defaults from `./aegis.toml` (or `--config <path>`). Flags override
 the file, which overrides the built-in defaults:
 
 ```toml
@@ -202,7 +202,7 @@ db         = "runs.sqlite"
 ## Build & test
 
 ```sh
-cargo build            # workspace + `sturdy` binary
+cargo build            # workspace + `aegis` binary
 cargo test --workspace # 43 tests (incl. end-to-end CLI tests), all green
 ```
 
@@ -238,11 +238,11 @@ and reproducible, so a change's effect is verifiable rather than vibes.
 
 ## Status
 
-Every subsystem has a real, tested implementation. `sturdy run` drives a live
+Every subsystem has a real, tested implementation. `aegis run` drives a live
 model through real MCP (or built-in) tools under hard budgets, journaling each
 step for deterministic replay; `compact` handles five languages; `verify`
 auto-detects the project's build/test system; every command has `--json` output
-and a `sturdy.toml`-configurable, pipe-safe CLI covered by end-to-end tests.
+and a `aegis.toml`-configurable, pipe-safe CLI covered by end-to-end tests.
 A TUI and richer built-in tools are the remaining niceties.
 
 ## License
