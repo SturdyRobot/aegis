@@ -200,7 +200,7 @@ fn tool_specs() -> Value {
                     "code": { "type": "string", "description": "Raw source text (use together with `lang` instead of `path`)." },
                     "lang": { "type": "string", "enum": ["rust", "python", "javascript", "typescript", "go"], "description": "Force or declare the language." },
                     "max_tokens": { "type": "integer", "description": "Elide only enough bodies to fit this token budget. Omit for a full outline (all bodies elided)." },
-                    "db": { "type": "string", "description": "Ledger to journal the token savings into for cumulative reporting (default: aegis.sqlite)." }
+                    "db": { "type": "string", "description": "Ledger to journal the token savings into (default: $AEGIS_LEDGER_PATH, else ./aegis.sqlite). Point AEGIS_LEDGER_PATH at one absolute file to accumulate lifetime totals across every project." }
                 }
             }
         },
@@ -210,7 +210,7 @@ fn tool_specs() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "db": { "type": "string", "description": "Ledger path (default: aegis.sqlite)." },
+                    "db": { "type": "string", "description": "Ledger path (default: $AEGIS_LEDGER_PATH, else ./aegis.sqlite)." },
                     "price_per_1k": { "type": "number", "description": "USD per 1k tokens, to compute a cost figure." },
                     "runs_per_day": { "type": "integer", "description": "Expected runs/day, for a projection (needs price_per_1k)." }
                 }
@@ -229,7 +229,7 @@ fn tool_specs() -> Value {
                     "max_steps": { "type": "integer", "description": "Max ReAct steps (default: 12)." },
                     "max_tokens": { "type": "integer", "description": "Max cumulative tokens (default: 100000)." },
                     "max_secs": { "type": "integer", "description": "Wall-clock budget in seconds (default: 120)." },
-                    "db": { "type": "string", "description": "Ledger path (default: aegis.sqlite)." }
+                    "db": { "type": "string", "description": "Ledger path (default: $AEGIS_LEDGER_PATH, else ./aegis.sqlite)." }
                 },
                 "required": ["goal"]
             }
@@ -292,11 +292,9 @@ fn tool_compact(args: &Value) -> Result<String> {
     );
     // Best-effort: journal this saving so `aegis_audit` can report a cumulative
     // "tokens saved" total. A ledger problem never fails the compaction itself.
-    let db = args
-        .get("db")
-        .and_then(Value::as_str)
-        .unwrap_or("aegis.sqlite");
-    let cumulative = match Ledger::open(db) {
+    let db =
+        sturdy_ledger::resolve_ledger_path(args.get("db").and_then(Value::as_str).map(Path::new));
+    let cumulative = match Ledger::open(&db) {
         Ok(ledger) => {
             let label = args.get("path").and_then(Value::as_str);
             if let Err(e) = ledger.record_compaction(
@@ -332,13 +330,11 @@ fn tool_compact(args: &Value) -> Result<String> {
 }
 
 fn tool_audit(args: &Value) -> Result<String> {
-    let db = args
-        .get("db")
-        .and_then(Value::as_str)
-        .unwrap_or("aegis.sqlite");
+    let db =
+        sturdy_ledger::resolve_ledger_path(args.get("db").and_then(Value::as_str).map(Path::new));
     let price = args.get("price_per_1k").and_then(Value::as_f64);
     let runs = args.get("runs_per_day").and_then(Value::as_u64);
-    let report = aegis_audit::AuditReport::from_ledger(Path::new(db), price, runs)
+    let report = aegis_audit::AuditReport::from_ledger(&db, price, runs)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(report.to_json())
 }
@@ -438,11 +434,8 @@ async fn tool_run(args: &Value) -> Result<String> {
         .unwrap_or(100_000);
     let max_steps = args.get("max_steps").and_then(Value::as_u64).unwrap_or(12);
     let max_secs = args.get("max_secs").and_then(Value::as_u64).unwrap_or(120);
-    let db = PathBuf::from(
-        args.get("db")
-            .and_then(Value::as_str)
-            .unwrap_or("aegis.sqlite"),
-    );
+    let db =
+        sturdy_ledger::resolve_ledger_path(args.get("db").and_then(Value::as_str).map(Path::new));
 
     let budget = Budget {
         max_tokens,

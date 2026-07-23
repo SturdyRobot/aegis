@@ -11,7 +11,7 @@
 //! The connection lives behind an `Arc<Mutex<_>>` so a single ledger can be both
 //! queried directly and handed to the engine as an observer.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -29,6 +29,8 @@ pub enum LedgerError {
     NotFound(TaskId),
     #[error("ledger lock poisoned")]
     Poisoned,
+    #[error("could not create the ledger's parent directory: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 impl From<LedgerError> for HarnessError {
@@ -152,6 +154,71 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// Environment variable naming a single, machine-wide ledger. Without it each
+/// working directory grows its own `aegis.sqlite`, so lifetime totals (token
+/// savings, intercepted mutations, runs) fragment across projects.
+pub const ENV_LEDGER_PATH: &str = "AEGIS_LEDGER_PATH";
+
+/// The default ledger, relative to the current working directory.
+pub const DEFAULT_LEDGER: &str = "aegis.sqlite";
+
+/// Expand a leading `~/` (and a bare `~`) to the user's home directory.
+///
+/// This matters because the places `AEGIS_LEDGER_PATH` gets set — a quoted
+/// `export` in `.zshrc`, or an `env` block in `.mcp.json` — are **not**
+/// shell-expanded. Without this, `~/.aegis/ledger.sqlite` would silently create
+/// a directory literally named `~` in whatever the process's cwd happens to be.
+pub fn expand_tilde(path: &Path) -> PathBuf {
+    let Some(s) = path.to_str() else {
+        return path.to_path_buf();
+    };
+    let Some(rest) = s.strip_prefix('~') else {
+        return path.to_path_buf();
+    };
+    // Only `~` or `~/...` — leave `~user/...` alone, we can't resolve it.
+    if !rest.is_empty() && !rest.starts_with('/') {
+        return path.to_path_buf();
+    }
+    let Some(home) = home_dir() else {
+        return path.to_path_buf();
+    };
+    if rest.is_empty() {
+        home
+    } else {
+        home.join(rest.trim_start_matches('/'))
+    }
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE")) // Windows
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Decide which ledger to use: an explicit override wins, then
+/// `$AEGIS_LEDGER_PATH`, then `./aegis.sqlite`. A leading `~/` is expanded.
+///
+/// Point `AEGIS_LEDGER_PATH` at one absolute file to accumulate every run,
+/// audit, and compaction across every codebase into a single lifetime ledger.
+pub fn resolve_ledger_path(override_path: Option<&Path>) -> PathBuf {
+    resolve_from(override_path, std::env::var_os(ENV_LEDGER_PATH))
+}
+
+/// The pure core of [`resolve_ledger_path`], so precedence is testable without
+/// mutating global process environment.
+fn resolve_from(override_path: Option<&Path>, env_value: Option<std::ffi::OsString>) -> PathBuf {
+    let chosen = override_path
+        .map(PathBuf::from)
+        .or_else(|| {
+            env_value
+                .map(PathBuf::from)
+                .filter(|p| !p.as_os_str().is_empty())
+        })
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_LEDGER));
+    expand_tilde(&chosen)
+}
+
 /// The SQLite-backed journal.
 #[derive(Clone)]
 pub struct Ledger {
@@ -160,9 +227,24 @@ pub struct Ledger {
 
 impl Ledger {
     /// Open (or create) a journal at `path`, applying the schema.
+    ///
+    /// Expands a leading `~/` and creates missing parent directories, so a
+    /// central path like `~/.aegis/ledger.sqlite` works on a fresh machine
+    /// instead of failing because `.aegis/` doesn't exist yet.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        let path = expand_tilde(path.as_ref());
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
         let conn = Connection::open(path)?;
         Self::init(conn)
+    }
+
+    /// Open the ledger chosen by [`resolve_ledger_path`].
+    pub fn open_resolved(override_path: Option<&Path>) -> Result<Self> {
+        Self::open(resolve_ledger_path(override_path))
     }
 
     /// An ephemeral in-memory journal (used in tests and dry runs).
@@ -609,5 +691,65 @@ mod tests {
             ledger.run_detail(TaskId::new()).unwrap_err(),
             LedgerError::NotFound(_)
         ));
+    }
+    // ── ledger path resolution ──
+
+    #[test]
+    fn explicit_override_beats_env_and_default() {
+        let got = resolve_from(
+            Some(Path::new("/tmp/explicit.sqlite")),
+            Some("/tmp/from-env.sqlite".into()),
+        );
+        assert_eq!(got, PathBuf::from("/tmp/explicit.sqlite"));
+    }
+
+    #[test]
+    fn env_is_used_when_there_is_no_override() {
+        let got = resolve_from(None, Some("/tmp/from-env.sqlite".into()));
+        assert_eq!(got, PathBuf::from("/tmp/from-env.sqlite"));
+    }
+
+    #[test]
+    fn falls_back_to_cwd_default() {
+        assert_eq!(resolve_from(None, None), PathBuf::from(DEFAULT_LEDGER));
+        // An empty env var must not win — that would resolve to "".
+        assert_eq!(
+            resolve_from(None, Some("".into())),
+            PathBuf::from(DEFAULT_LEDGER)
+        );
+    }
+
+    #[test]
+    fn tilde_is_expanded_because_env_blocks_are_not_shell_expanded() {
+        let home = PathBuf::from(std::env::var_os("HOME").expect("HOME set in tests"));
+        assert_eq!(
+            resolve_from(None, Some("~/.aegis/ledger.sqlite".into())),
+            home.join(".aegis/ledger.sqlite"),
+            "a literal `~` directory is the bug this prevents"
+        );
+        assert_eq!(expand_tilde(Path::new("~")), home);
+        // Absolute and relative paths pass through untouched.
+        assert_eq!(
+            expand_tilde(Path::new("/abs/x.sqlite")),
+            PathBuf::from("/abs/x.sqlite")
+        );
+        assert_eq!(
+            expand_tilde(Path::new("rel/x.sqlite")),
+            PathBuf::from("rel/x.sqlite")
+        );
+        // `~user/...` is left alone — we can't resolve another user's home.
+        assert_eq!(expand_tilde(Path::new("~bob/x")), PathBuf::from("~bob/x"));
+    }
+
+    #[test]
+    fn open_creates_missing_parent_directories() {
+        let dir = std::env::temp_dir().join(format!("aegis-ledger-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let nested = dir.join("deep/nested/ledger.sqlite");
+        let ledger = Ledger::open(&nested).expect("should create parents, not fail");
+        ledger.record_compaction(100, 40, Some("x.rs")).unwrap();
+        assert_eq!(ledger.compaction_totals().unwrap().tokens_saved, 60);
+        assert!(nested.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
