@@ -168,8 +168,34 @@ impl ReActEngine {
         }
     }
 
+    /// Continue a previously-journaled run from where it stopped. `prior` is the
+    /// trajectory replayed from the ledger; its steps are **not re-executed** —
+    /// they are seeded as context and the engine drives forward from the next
+    /// index, so already-performed (possibly side-effecting) tool calls are never
+    /// repeated. The continuation runs under a fresh budget.
+    pub async fn resume(&self, task: &Task, prior: Trajectory) -> (Outcome, Trajectory) {
+        let mut trajectory = prior;
+        match self.run_inner(task, &mut trajectory).await {
+            Ok(outcome) => (outcome, trajectory),
+            Err(err) if err.is_budget() => (
+                Outcome::BudgetExhausted {
+                    reason: err.to_string(),
+                },
+                trajectory,
+            ),
+            Err(err) => (
+                Outcome::Failed {
+                    reason: err.to_string(),
+                },
+                trajectory,
+            ),
+        }
+    }
+
     async fn run_inner(&self, task: &Task, trajectory: &mut Trajectory) -> Result<Outcome> {
-        let mut index: u32 = 0;
+        // Seed from the trajectory length so a resumed run keeps counting up
+        // instead of colliding with already-journaled step indices.
+        let mut index: u32 = trajectory.steps.len() as u32;
         loop {
             let mut sm = StateMachine::new(); // fresh cycle per step
             let started = Instant::now();
