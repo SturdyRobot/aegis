@@ -11,9 +11,21 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
-tokio = { workspace = true }
 tracing = { workspace = true }
+# `Instant` that works on both native (std) and wasm (performance.now()).
+web-time = "1"
+
+# Native: the full workspace tokio/uuid.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true }
 uuid = { workspace = true }
+
+# wasm32: a wasm-clean subset. tokio without `net` (no mio), and uuid's `js`
+# getrandom backend (browser crypto) for v4 ids. Core only uses `time::timeout`
+# and `Uuid::new_v4`, so this is all it needs in the browser.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1", default-features = false, features = ["sync", "macros", "time", "io-util"] }
+uuid = { version = "1", default-features = false, features = ["v4", "serde", "js"] }
 
 [dev-dependencies]
 tokio = { workspace = true }
