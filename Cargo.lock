@@ -6,6 +6,7 @@ version = 4
 name = "aegis"
 version = "0.1.0"
 dependencies = [
+ "aegis-eval",
  "anyhow",
  "assert_cmd",
  "async-trait",
@@ -26,6 +27,20 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "aegis-eval"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sturdy-core",
+ "sturdy-ledger",
+ "tempfile",
+ "thiserror",
+ "tracing",
  "uuid",
 ]
 

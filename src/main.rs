@@ -48,6 +48,21 @@ enum Command {
     Replay(ReplayArgs),
     /// Inspect the ledger.
     Ledger(LedgerArgs),
+    /// Regression-test a candidate run against a baseline suite.
+    Eval(EvalArgs),
+}
+
+#[derive(Parser)]
+struct EvalArgs {
+    /// Path to the eval suite JSON (names the baseline ledger + metrics).
+    #[arg(long)]
+    suite: PathBuf,
+    /// Candidate ledger (a fresh `aegis run`) to compare against the baseline.
+    #[arg(long)]
+    candidate: PathBuf,
+    /// Report format for CI.
+    #[arg(long, default_value = "pretty")]
+    output_format: String,
 }
 
 // For `run`, flags override `aegis.toml`, which overrides the built-in defaults.
@@ -337,7 +352,19 @@ async fn main() -> Result<()> {
         Command::Verify(a) => cmd_verify(a).await,
         Command::Replay(a) => cmd_replay(a),
         Command::Ledger(a) => cmd_ledger(a),
+        Command::Eval(a) => cmd_eval(a),
     }
+}
+
+/// Compare a candidate run against a baseline suite; exit non-zero on regression.
+fn cmd_eval(a: EvalArgs) -> Result<()> {
+    let format: aegis_eval::OutputFormat = a
+        .output_format
+        .parse()
+        .map_err(|e: String| anyhow::anyhow!(e))?;
+    let code =
+        aegis_eval::run_eval(&a.suite, &a.candidate, format).map_err(|e| anyhow::anyhow!("{e}"))?;
+    std::process::exit(code);
 }
 
 async fn cmd_run(a: RunArgs) -> Result<()> {
@@ -381,10 +408,7 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
             let client = McpClient::connect_stdio(&program, &args)
                 .await
                 .context("launching MCP server")?;
-            let info = client
-                .initialize("aegis")
-                .await
-                .context("MCP initialize")?;
+            let info = client.initialize("aegis").await.context("MCP initialize")?;
             let mcp_tools = client.list_tools().await.context("MCP tools/list")?;
             if !json {
                 println!(
