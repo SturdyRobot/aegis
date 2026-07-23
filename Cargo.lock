@@ -3,6 +3,33 @@
 version = 4
 
 [[package]]
+name = "aegis"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "async-trait",
+ "clap",
+ "indicatif",
+ "nix",
+ "predicates",
+ "serde",
+ "serde_json",
+ "sturdy-compact",
+ "sturdy-core",
+ "sturdy-exec",
+ "sturdy-ledger",
+ "sturdy-llm",
+ "sturdy-mcp",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1302,33 +1329,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "sturdy-harness"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "async-trait",
- "clap",
- "indicatif",
- "nix",
- "predicates",
- "serde",
- "serde_json",
- "sturdy-compact",
- "sturdy-core",
- "sturdy-exec",
- "sturdy-ledger",
- "sturdy-llm",
- "sturdy-mcp",
- "tempfile",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
