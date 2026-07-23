@@ -2,3 +2,7 @@
 **/target/
 Cargo.lock.bridge
 crates/aegis-bridge/Cargo.lock
+
+# stray ledgers from local runs
+*.sqlite
+*.sqlite-*
