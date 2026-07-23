@@ -57,6 +57,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "aegis-policy"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "regex",
+ "serde",
+ "serde_json",
+ "sturdy-core",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
