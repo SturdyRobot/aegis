@@ -111,6 +111,16 @@ pub enum Event {
         /// The arguments the agent intended to pass.
         arguments: serde_json::Value,
     },
+    /// A human-in-the-loop approval decision for a high-risk tool call: the agent
+    /// paused, a human was asked, and this records what they decided.
+    ToolApprovalDecision {
+        tool: String,
+        /// Risk classification: "medium" | "high".
+        risk: String,
+        approved: bool,
+        /// The arguments the agent intended to pass.
+        arguments: serde_json::Value,
+    },
 }
 
 impl Event {
@@ -121,6 +131,7 @@ impl Event {
             Event::KernelSecurityViolation { .. } => "kernel_security_violation",
             Event::SubagentFailed { .. } => "subagent_failed",
             Event::ToolExecutionAudited { .. } => "tool_execution_audited",
+            Event::ToolApprovalDecision { .. } => "tool_approval_decision",
         }
     }
 }

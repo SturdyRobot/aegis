@@ -46,6 +46,10 @@ Aegis is a small workspace of composable crates, each a clean trait implementati
   tools execute for real so the agent reasons on real data, but every *mutating*
   tool is intercepted (nothing is written/called) and journaled. `aegis audit`
   then prints a security scorecard + a measured token/cost report.
+- **Human-in-the-loop** (`aegis run --hitl`) — the same interception boundary, but
+  it *pauses* on each mutating tool and asks a human to approve (`y/N`) before it
+  runs; every decision is journaled. Three modes, one boundary: dry-run / approve /
+  block (`aegis-policy`).
 - **Crash recovery** (`aegis resume`) — continue an interrupted run from its last
   journaled step without re-executing already-performed (side-effecting) actions.
 - **Bounded subagent mesh** (`aegis-mesh`) — spawn subagents in isolated Tokio
@@ -214,6 +218,8 @@ aegis ledger show <id>          [--json]   one run's metadata, stats & full traj
 
 aegis run … --audit                        shadow dry-run: read tools run for real,
                                             mutating tools are intercepted + journaled
+aegis run … --hitl                         human-in-the-loop: pause + ask (y/N) before
+                                            each mutating tool runs (decisions journaled)
 aegis audit --ledger <db>                  forensic report: intercepted mutations +
         --price-per-1k <USD>                measured token/cost (cost only from your
         --runs-per-day <N>                  explicit price/volume inputs)

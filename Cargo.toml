@@ -87,6 +87,7 @@ tracing-subscriber = { workspace = true }
 indicatif = { workspace = true }
 toml = { workspace = true }
 aegis-audit = { path = "crates/aegis-audit" }
+aegis-hitl = { path = "crates/aegis-hitl" }
 aegis-eval = { path = "crates/aegis-eval" }
 
 # Optional OpenTelemetry OTLP export — pulled in only under the `otel` feature.
