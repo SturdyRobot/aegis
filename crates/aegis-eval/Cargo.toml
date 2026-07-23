@@ -1,0 +1,19 @@
+[package]
+name = "aegis-eval"
+description = "Event-sourced prompt & agent regression harness — compares runs against baseline ledgers."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sturdy-core = { workspace = true }
+sturdy-ledger = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -1,0 +1,17 @@
+[package]
+name = "aegis-cache"
+description = "Content-hashed cache of deterministic AST compaction results (never LLM responses)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sturdy-compact = { workspace = true }
+rusqlite = { workspace = true }
+sha2 = "0.10"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
