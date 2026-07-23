@@ -48,6 +48,23 @@ enum Command {
     Replay(ReplayArgs),
     /// Inspect the ledger.
     Ledger(LedgerArgs),
+    /// Forensic Shadow-Guard report: intercepted mutations + token/cost summary.
+    Audit(AuditArgs),
+}
+
+#[derive(Parser)]
+struct AuditArgs {
+    #[arg(long, default_value = "aegis.sqlite")]
+    ledger: PathBuf,
+    /// Your API price per 1k tokens (USD) — supply it for a cost figure.
+    #[arg(long)]
+    price_per_1k: Option<f64>,
+    /// Your expected runs/day — supply it (with --price-per-1k) for a projection.
+    #[arg(long)]
+    runs_per_day: Option<u64>,
+    /// Emit the report as JSON.
+    #[arg(long)]
+    json: bool,
 }
 
 // For `run`, flags override `aegis.toml`, which overrides the built-in defaults.
@@ -90,6 +107,10 @@ struct RunArgs {
     /// Emit the result as JSON instead of the human-readable trace.
     #[arg(long)]
     json: bool,
+    /// Shadow-audit (dry-run): execute read-only tools for real, but intercept
+    /// every mutating tool — nothing is written/called — and journal the intent.
+    #[arg(long)]
+    audit: bool,
 }
 
 #[derive(Parser)]
@@ -337,7 +358,20 @@ async fn main() -> Result<()> {
         Command::Verify(a) => cmd_verify(a).await,
         Command::Replay(a) => cmd_replay(a),
         Command::Ledger(a) => cmd_ledger(a),
+        Command::Audit(a) => cmd_audit(a),
     }
+}
+
+/// Produce the Shadow-Guard forensic report from a ledger.
+fn cmd_audit(a: AuditArgs) -> Result<()> {
+    let report = aegis_audit::AuditReport::from_ledger(&a.ledger, a.price_per_1k, a.runs_per_day)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    if a.json {
+        println!("{}", report.to_json());
+    } else {
+        println!("{}", report.to_pretty());
+    }
+    Ok(())
 }
 
 async fn cmd_run(a: RunArgs) -> Result<()> {
@@ -427,6 +461,20 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
             ))
         }
         None => Arc::new(DemoReasoner),
+    };
+
+    // Shadow-audit: wrap the toolset so mutating calls are intercepted (dry-run).
+    let tools: Arc<dyn ToolExecutor> = if a.audit {
+        if !json {
+            println!("🛡  shadow-audit: mutating tools will be intercepted (nothing is executed)");
+        }
+        Arc::new(aegis_audit::AuditExecutor::new(
+            tools,
+            Some(Arc::new(ledger.clone())),
+            task.id,
+        ))
+    } else {
+        tools
     };
 
     let engine = ReActEngine::new(reasoner, tools, budget.clone()).with_observer(ledger.observer());
