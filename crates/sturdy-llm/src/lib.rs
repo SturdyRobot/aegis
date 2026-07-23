@@ -155,8 +155,37 @@ impl ChatReasoner {
     }
 }
 
+/// A coarse, human-friendly label for an OpenAI-compatible endpoint, for traces.
+fn provider_label(base_url: &str) -> String {
+    let host = base_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(base_url);
+    let host = host.split('/').next().unwrap_or(host);
+    if host.contains("11434") {
+        "ollama".into()
+    } else if host.contains("openai.com") {
+        "openai".into()
+    } else if host.contains("localhost") || host.contains("127.0.0.1") {
+        "local".into()
+    } else {
+        host.to_string()
+    }
+}
+
 #[async_trait]
 impl Reasoner for ChatReasoner {
+    #[tracing::instrument(
+        name = "llm.next_action",
+        skip_all,
+        fields(
+            provider = %provider_label(&self.base_url),
+            model = %self.model,
+            prompt_tokens = tracing::field::Empty,
+            completion_tokens = tracing::field::Empty,
+            total_tokens = tracing::field::Empty,
+        )
+    )]
     async fn next_action(
         &self,
         task: &Task,
@@ -202,7 +231,12 @@ impl Reasoner for ChatReasoner {
             .next()
             .and_then(|c| c.message.content)
             .ok_or_else(|| HarnessError::Reasoner("model returned no content".into()))?;
-        let tokens = parsed.usage.map(|u| u.total_tokens).unwrap_or(0);
+        let usage = parsed.usage.unwrap_or_default();
+        let span = tracing::Span::current();
+        span.record("prompt_tokens", usage.prompt_tokens);
+        span.record("completion_tokens", usage.completion_tokens);
+        span.record("total_tokens", usage.total_tokens);
+        let tokens = usage.total_tokens;
 
         parse_decision(&content, tokens).map_err(|e| {
             HarnessError::Reasoner(format!("{e} — raw output: {}", truncate(&content, 300)))
@@ -315,8 +349,12 @@ struct RespMessage {
     content: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct Usage {
+    #[serde(default)]
+    prompt_tokens: u64,
+    #[serde(default)]
+    completion_tokens: u64,
     #[serde(default)]
     total_tokens: u64,
 }
