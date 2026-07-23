@@ -143,6 +143,10 @@ struct RunArgs {
     /// every mutating tool — nothing is written/called — and journal the intent.
     #[arg(long)]
     audit: bool,
+    /// Human-in-the-loop: pause on every mutating tool and ask for approval
+    /// (y/N) before it runs. Each decision is journaled.
+    #[arg(long, conflicts_with = "audit")]
+    hitl: bool,
 }
 
 #[derive(Parser)]
@@ -562,13 +566,24 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
         None => Arc::new(DemoReasoner),
     };
 
-    // Shadow-audit: wrap the toolset so mutating calls are intercepted (dry-run).
+    // Layer the toolset per mode: --audit dry-runs mutating tools; --hitl asks a
+    // human to approve each one; otherwise tools run normally.
     let tools: Arc<dyn ToolExecutor> = if a.audit {
         if !json {
             println!("🛡  shadow-audit: mutating tools will be intercepted (nothing is executed)");
         }
         Arc::new(aegis_audit::AuditExecutor::new(
             tools,
+            Some(Arc::new(ledger.clone())),
+            task.id,
+        ))
+    } else if a.hitl {
+        if !json {
+            println!("🙋 human-in-the-loop: you'll be asked to approve each mutating tool");
+        }
+        Arc::new(aegis_hitl::ApprovalGate::new(
+            tools,
+            Arc::new(aegis_hitl::CliApprover),
             Some(Arc::new(ledger.clone())),
             task.id,
         ))

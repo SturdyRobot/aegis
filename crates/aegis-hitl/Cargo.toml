@@ -1,0 +1,19 @@
+[package]
+name = "aegis-hitl"
+description = "Human-in-the-loop approval gate — pause the ReAct loop on high-risk tools and ask a human."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sturdy-core = { workspace = true }
+sturdy-ledger = { workspace = true }
+aegis-audit = { path = "../aegis-audit" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+serde_json = { workspace = true }
