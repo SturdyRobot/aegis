@@ -30,6 +30,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "aegis-mesh"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "sturdy-core",
+ "sturdy-ledger",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "aegis-probe"
 version = "0.1.0"
 dependencies = [
