@@ -95,6 +95,13 @@ pub enum Event {
         /// What was attempted (the exec path, destination address, or file path).
         detail: String,
     },
+    /// A supervised subagent (spawned via `aegis-mesh`) terminated abnormally —
+    /// panic, timeout, cancellation, or budget exhaustion.
+    SubagentFailed {
+        name: String,
+        reason: String,
+        tokens_used: u64,
+    },
 }
 
 impl Event {
@@ -103,6 +110,7 @@ impl Event {
         match self {
             Event::McpToolExecution { .. } => "mcp_tool_execution",
             Event::KernelSecurityViolation { .. } => "kernel_security_violation",
+            Event::SubagentFailed { .. } => "subagent_failed",
         }
     }
 }
