@@ -89,6 +89,7 @@ toml = { workspace = true }
 aegis-audit = { path = "crates/aegis-audit" }
 aegis-hitl = { path = "crates/aegis-hitl" }
 aegis-eval = { path = "crates/aegis-eval" }
+aegis-server = { path = "crates/aegis-server" }
 
 # Optional OpenTelemetry OTLP export — pulled in only under the `otel` feature.
 opentelemetry = { version = "0.32", optional = true }

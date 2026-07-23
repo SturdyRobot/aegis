@@ -56,6 +56,17 @@ enum Command {
     Eval(EvalArgs),
     /// Resume a crashed/interrupted run from its last journaled step.
     Resume(ResumeArgs),
+    /// Serve the HTTP control API (inspect runs, resolve HITL approvals remotely).
+    Serve(ServeArgs),
+}
+
+#[derive(Parser)]
+struct ServeArgs {
+    #[arg(long, default_value = "aegis.sqlite")]
+    db: PathBuf,
+    /// Address to bind, e.g. 127.0.0.1:8787 or 0.0.0.0:8787.
+    #[arg(long, default_value = "127.0.0.1:8787")]
+    addr: String,
 }
 
 #[derive(Parser)]
@@ -392,7 +403,23 @@ async fn main() -> Result<()> {
         Command::Audit(a) => cmd_audit(a),
         Command::Eval(a) => cmd_eval(a),
         Command::Resume(a) => cmd_resume(a).await,
+        Command::Serve(a) => cmd_serve(a).await,
     }
+}
+
+/// Serve the HTTP control API. Ledger inspection (`/runs`) works standalone; the
+/// approvals API resolves requests from agents sharing this process's registry.
+async fn cmd_serve(a: ServeArgs) -> Result<()> {
+    let ledger = Ledger::open(&a.db).context("opening ledger")?;
+    let approvals = aegis_hitl::PendingApprovals::new();
+    let addr: std::net::SocketAddr = a.addr.parse().context("parsing --addr")?;
+    println!(
+        "🌐 aegis control API on http://{addr}\n   GET /runs · GET /runs/<id> · GET /approvals · POST /approvals/<id>"
+    );
+    aegis_server::serve(ledger, approvals, addr)
+        .await
+        .context("control API server")?;
+    Ok(())
 }
 
 /// Produce the Shadow-Guard forensic report from a ledger.
