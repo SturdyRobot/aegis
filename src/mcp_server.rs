@@ -68,6 +68,10 @@ pub async fn serve_stdio() -> Result<()> {
     let out: SharedOut = Arc::new(tokio::sync::Mutex::new(tokio::io::stdout()));
     // The MCP handshake must precede any tool traffic.
     let initialized = Arc::new(AtomicBool::new(false));
+    // Handles for tool calls still running. On EOF we drain these before
+    // returning — otherwise the runtime shuts down and cancels them, silently
+    // dropping a response for work that had already been done.
+    let mut inflight: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
     eprintln!(
         "aegis mcp: ready on stdio · tools: aegis_compact, aegis_audit, aegis_run \
@@ -128,12 +132,13 @@ pub async fn serve_stdio() -> Result<()> {
                 // failure is a *successful* JSON-RPC result carrying
                 // `isError: true`, per MCP — not a protocol-level error.
                 let out = Arc::clone(&out);
-                tokio::spawn(async move {
+                inflight.retain(|h| !h.is_finished()); // keep the list bounded
+                inflight.push(tokio::spawn(async move {
                     let result = handle_tool_call(&params).await;
                     if let Err(e) = reply(&out, id, Ok(result)).await {
                         eprintln!("aegis mcp: failed to write response: {e}");
                     }
-                });
+                }));
             }
             // Notifications and anything we don't implement.
             "notifications/initialized" | "initialized" => {}
@@ -147,6 +152,15 @@ pub async fn serve_stdio() -> Result<()> {
                     .await?;
                 }
             }
+        }
+    }
+
+    // stdin closed. Let any in-flight tool call finish writing its response
+    // rather than having the runtime cancel it out from under us. Each tool
+    // carries its own budget, so this wait is bounded by construction.
+    for handle in inflight {
+        if let Err(e) = handle.await {
+            eprintln!("aegis mcp: in-flight tool call did not finish cleanly: {e}");
         }
     }
     Ok(())
