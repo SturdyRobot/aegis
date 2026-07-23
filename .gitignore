@@ -1,6 +1,4 @@
 /target
-*.sqlite
-*.sqlite-wal
-*.sqlite-shm
-*.db
+**/target/
+Cargo.lock.bridge
 crates/aegis-bridge/Cargo.lock
