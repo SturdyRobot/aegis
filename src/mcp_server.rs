@@ -187,7 +187,10 @@ fn tool_specs() -> Value {
 /// Dispatch a `tools/call`, wrapping the outcome as an MCP `CallToolResult`.
 async fn handle_tool_call(params: &Value) -> Value {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-    let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let args = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
 
     let outcome: Result<String> = match name {
         "aegis_compact" => tool_compact(&args),
@@ -198,7 +201,9 @@ async fn handle_tool_call(params: &Value) -> Value {
 
     match outcome {
         Ok(text) => json!({ "content": [{ "type": "text", "text": text }], "isError": false }),
-        Err(e) => json!({ "content": [{ "type": "text", "text": format!("error: {e:#}") }], "isError": true }),
+        Err(e) => {
+            json!({ "content": [{ "type": "text", "text": format!("error: {e:#}") }], "isError": true })
+        }
     }
 }
 
@@ -224,7 +229,9 @@ fn tool_compact(args: &Value) -> Result<String> {
     };
 
     // Surface the savings explicitly so callers never have to do the subtraction.
-    let saved = result.original_tokens.saturating_sub(result.compacted_tokens);
+    let saved = result
+        .original_tokens
+        .saturating_sub(result.compacted_tokens);
     let pct = result.savings() * 100.0;
     let summary = format!(
         "Saved {saved} tokens ({pct:.0}%): {} → {} tokens, {} bodies elided",
@@ -232,7 +239,10 @@ fn tool_compact(args: &Value) -> Result<String> {
     );
     // Best-effort: journal this saving so `aegis_audit` can report a cumulative
     // "tokens saved" total. A ledger problem never fails the compaction itself.
-    let db = args.get("db").and_then(Value::as_str).unwrap_or("aegis.sqlite");
+    let db = args
+        .get("db")
+        .and_then(Value::as_str)
+        .unwrap_or("aegis.sqlite");
     let cumulative = match Ledger::open(db) {
         Ok(ledger) => {
             let label = args.get("path").and_then(Value::as_str);
@@ -299,10 +309,17 @@ async fn tool_run(args: &Value) -> Result<String> {
         .unwrap_or(DEFAULT_GROQ_MODEL)
         .to_string();
     let cwd = PathBuf::from(args.get("cwd").and_then(Value::as_str).unwrap_or("."));
-    let max_tokens = args.get("max_tokens").and_then(Value::as_u64).unwrap_or(100_000);
+    let max_tokens = args
+        .get("max_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(100_000);
     let max_steps = args.get("max_steps").and_then(Value::as_u64).unwrap_or(12);
     let max_secs = args.get("max_secs").and_then(Value::as_u64).unwrap_or(120);
-    let db = PathBuf::from(args.get("db").and_then(Value::as_str).unwrap_or("aegis.sqlite"));
+    let db = PathBuf::from(
+        args.get("db")
+            .and_then(Value::as_str)
+            .unwrap_or("aegis.sqlite"),
+    );
 
     let budget = Budget {
         max_tokens,
@@ -326,8 +343,7 @@ async fn tool_run(args: &Value) -> Result<String> {
         vec![shell_tool_spec()],
     ));
 
-    let engine =
-        ReActEngine::new(reasoner, tools, budget.clone()).with_observer(ledger.observer());
+    let engine = ReActEngine::new(reasoner, tools, budget.clone()).with_observer(ledger.observer());
     let (outcome, trajectory) = engine.run(&task).await;
     ledger.finalize(task.id, &outcome)?;
 
