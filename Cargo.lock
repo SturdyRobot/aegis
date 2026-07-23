@@ -8,6 +8,7 @@ version = "0.1.0"
 dependencies = [
  "aegis-audit",
  "aegis-eval",
+ "aegis-hitl",
  "anyhow",
  "assert_cmd",
  "async-trait",
@@ -75,6 +76,19 @@ dependencies = [
  "thiserror 2.0.19",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "aegis-hitl"
+version = "0.1.0"
+dependencies = [
+ "aegis-audit",
+ "async-trait",
+ "serde_json",
+ "sturdy-core",
+ "sturdy-ledger",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
