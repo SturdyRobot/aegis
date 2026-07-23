@@ -142,7 +142,11 @@ impl RpcClient {
                         match serde_json::from_str::<RpcResponse>(&line) {
                             Ok(resp) => {
                                 if let Some(id) = resp.id {
-                                    if let Some(tx) = reader_pending.lock().unwrap().remove(&id) {
+                                    if let Some(tx) = reader_pending
+                                        .lock()
+                                        .unwrap_or_else(|e| e.into_inner())
+                                        .remove(&id)
+                                    {
                                         let _ = tx.send(resp);
                                     }
                                     // Unmatched id → stale/duplicate response; drop.
@@ -163,7 +167,10 @@ impl RpcClient {
             }
             // Stream closed: mark it and fail every outstanding request.
             reader_closed.store(true, Ordering::SeqCst);
-            reader_pending.lock().unwrap().clear();
+            reader_pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
         });
 
         RpcClient {
@@ -200,7 +207,10 @@ impl RpcClient {
 
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().unwrap().insert(id, tx);
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, tx);
 
         let req = RpcRequest {
             jsonrpc: "2.0",
@@ -209,7 +219,10 @@ impl RpcClient {
             params,
         };
         if let Err(e) = self.write_line(serde_json::to_vec(&req)?).await {
-            self.pending.lock().unwrap().remove(&id); // don't leak the waiter
+            self.pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&id); // don't leak the waiter
             return Err(e);
         }
 
@@ -228,7 +241,10 @@ impl RpcClient {
             Ok(Err(_)) => Err(McpError::ConnectionClosed(id)),
             // Deadline hit ⇒ reclaim the pending slot and report the timeout.
             Err(_) => {
-                self.pending.lock().unwrap().remove(&id);
+                self.pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&id);
                 Err(McpError::Timeout {
                     method: method.to_string(),
                     secs: dur.as_secs(),
@@ -327,7 +343,12 @@ impl HttpTransport {
                 "application/json, text/event-stream",
             )
             .json(&body);
-        if let Some(sid) = self.session_id.lock().unwrap().clone() {
+        if let Some(sid) = self
+            .session_id
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        {
             req = req.header("mcp-session-id", sid);
         }
 
@@ -345,7 +366,7 @@ impl HttpTransport {
             .get("mcp-session-id")
             .and_then(|v| v.to_str().ok())
         {
-            *self.session_id.lock().unwrap() = Some(sid.to_string());
+            *self.session_id.lock().unwrap_or_else(|e| e.into_inner()) = Some(sid.to_string());
         }
 
         let status = resp.status();
@@ -356,10 +377,11 @@ impl HttpTransport {
                 detail.chars().take(200).collect::<String>()
             )));
         }
-        // A notification (no id) yields 202 Accepted with no useful body.
-        if id.is_none() {
+        // A notification (no id) yields 202 Accepted with no useful body. Bind the
+        // id here so the SSE path below can't be left holding an `unwrap`.
+        let Some(want_id) = id else {
             return Ok(None);
-        }
+        };
 
         let ctype = resp
             .headers()
@@ -369,7 +391,7 @@ impl HttpTransport {
             .to_string();
 
         let value = if ctype.contains("text/event-stream") {
-            read_sse_response(resp, id.unwrap(), self.timeout()).await?
+            read_sse_response(resp, want_id, self.timeout()).await?
         } else {
             resp.json::<Value>()
                 .await

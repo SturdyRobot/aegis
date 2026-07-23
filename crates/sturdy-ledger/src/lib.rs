@@ -176,6 +176,12 @@ impl Ledger {
         if let Err(e) = conn.pragma_update(None, "journal_mode", "WAL") {
             tracing::warn!(error = %e, "could not enable WAL journal mode");
         }
+        // Without a busy timeout a concurrent writer (a second agent, or
+        // `aegis serve` sharing the file) fails instantly with SQLITE_BUSY
+        // instead of waiting for the lock.
+        conn.pragma_update(None, "busy_timeout", 5_000).ok();
+        // The standard companion to WAL: still crash-safe, far fewer fsyncs.
+        conn.pragma_update(None, "synchronous", "NORMAL").ok();
         conn.pragma_update(None, "foreign_keys", "ON").ok();
         conn.execute_batch(SCHEMA)?;
         Ok(Ledger {
@@ -473,6 +479,22 @@ pub struct LedgerObserver {
 }
 
 impl StepObserver for LedgerObserver {
+    /// DESIGN NOTE — this performs a blocking SQLite write from inside the async
+    /// ReAct loop, and that is deliberate.
+    ///
+    /// Moving the write to a background task/thread would stop it occupying a
+    /// Tokio worker, but it would also make journaling *asynchronous* with
+    /// respect to the run: `replay()` and `resume()` are called immediately
+    /// after a run (including on the Ctrl-C path) and depend on every completed
+    /// step already being durable. Buffering would trade a sub-millisecond
+    /// block for a lost-step window on crash — the exact failure this ledger
+    /// exists to prevent.
+    ///
+    /// The write is a single-row insert against a WAL database with a busy
+    /// timeout, so the block is short and bounded. If a future workload proves
+    /// this is a bottleneck (many agents sharing one ledger under `aegis-mesh`),
+    /// the fix is a per-agent ledger or a durable write-ahead queue — not a
+    /// naive fire-and-forget channel.
     fn on_step(&self, task: &Task, step: &Step) {
         if let Err(e) = self.ledger.record_step(task.id, step) {
             tracing::error!(task = %task.id, index = step.index, error = %e, "ledger write failed");
