@@ -68,6 +68,15 @@ CREATE TABLE IF NOT EXISTS events (
     payload   TEXT NOT NULL,  -- JSON-encoded Event
     FOREIGN KEY (task_id) REFERENCES runs(task_id)
 );
+-- Standalone AST-compaction savings, journaled here so `aegis audit` can report
+-- a cumulative "tokens saved" figure. Not tied to a run (there is no task_id).
+CREATE TABLE IF NOT EXISTS compactions (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts_ms            INTEGER NOT NULL,
+    label            TEXT,           -- e.g. the file path that was compacted
+    original_tokens  INTEGER NOT NULL,
+    compacted_tokens INTEGER NOT NULL
+);
 "#;
 
 /// A categorized, out-of-band event journaled alongside the step trail. Steps are
@@ -264,6 +273,42 @@ impl Ledger {
         Ok(())
     }
 
+    /// Journal one AST-compaction's token savings (not tied to a run). Best-effort
+    /// telemetry: callers may ignore the error and still return their result.
+    pub fn record_compaction(
+        &self,
+        original_tokens: u64,
+        compacted_tokens: u64,
+        label: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "INSERT INTO compactions (ts_ms, label, original_tokens, compacted_tokens)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![now_ms(), label, original_tokens, compacted_tokens],
+        )?;
+        Ok(())
+    }
+
+    /// Cumulative compaction savings across every entry in this ledger.
+    pub fn compaction_totals(&self) -> Result<CompactionTotals> {
+        let conn = self.lock()?;
+        let (count, original, compacted): (u64, u64, u64) = conn.query_row(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(original_tokens), 0),
+                    COALESCE(SUM(compacted_tokens), 0)
+             FROM compactions",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        Ok(CompactionTotals {
+            compactions: count,
+            original_tokens: original,
+            compacted_tokens: compacted,
+            tokens_saved: original.saturating_sub(compacted),
+        })
+    }
+
     /// Every event recorded for a run, in insertion order.
     pub fn events(&self, task_id: TaskId) -> Result<Vec<Event>> {
         let conn = self.lock()?;
@@ -388,6 +433,15 @@ impl RawStep {
             elapsed_ms: self.elapsed_ms,
         })
     }
+}
+
+/// Cumulative AST-compaction savings across a ledger.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct CompactionTotals {
+    pub compactions: u64,
+    pub original_tokens: u64,
+    pub compacted_tokens: u64,
+    pub tokens_saved: u64,
 }
 
 /// Lightweight run listing for the CLI.

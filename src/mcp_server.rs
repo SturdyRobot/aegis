@@ -147,7 +147,8 @@ fn tool_specs() -> Value {
                     "path": { "type": "string", "description": "Path to a source file; language detected from its extension." },
                     "code": { "type": "string", "description": "Raw source text (use together with `lang` instead of `path`)." },
                     "lang": { "type": "string", "enum": ["rust", "python", "javascript", "typescript", "go"], "description": "Force or declare the language." },
-                    "max_tokens": { "type": "integer", "description": "Elide only enough bodies to fit this token budget. Omit for a full outline (all bodies elided)." }
+                    "max_tokens": { "type": "integer", "description": "Elide only enough bodies to fit this token budget. Omit for a full outline (all bodies elided)." },
+                    "db": { "type": "string", "description": "Ledger to journal the token savings into for cumulative reporting (default: aegis.sqlite)." }
                 }
             }
         },
@@ -221,7 +222,50 @@ fn tool_compact(args: &Value) -> Result<String> {
         Some(max) => compactor.compact_to_budget(&source, max as usize)?,
         None => compactor.outline(&source)?,
     };
-    Ok(serde_json::to_string_pretty(&result)?)
+
+    // Surface the savings explicitly so callers never have to do the subtraction.
+    let saved = result.original_tokens.saturating_sub(result.compacted_tokens);
+    let pct = result.savings() * 100.0;
+    let summary = format!(
+        "Saved {saved} tokens ({pct:.0}%): {} → {} tokens, {} bodies elided",
+        result.original_tokens, result.compacted_tokens, result.elided_bodies
+    );
+    // Best-effort: journal this saving so `aegis_audit` can report a cumulative
+    // "tokens saved" total. A ledger problem never fails the compaction itself.
+    let db = args.get("db").and_then(Value::as_str).unwrap_or("aegis.sqlite");
+    let cumulative = match Ledger::open(db) {
+        Ok(ledger) => {
+            let label = args.get("path").and_then(Value::as_str);
+            if let Err(e) = ledger.record_compaction(
+                result.original_tokens as u64,
+                result.compacted_tokens as u64,
+                label,
+            ) {
+                eprintln!("aegis mcp: compaction not journaled ({e})");
+            }
+            ledger.compaction_totals().ok()
+        }
+        Err(e) => {
+            eprintln!("aegis mcp: compaction ledger unavailable ({e})");
+            None
+        }
+    };
+
+    let out = json!({
+        "tokens_saved": saved,
+        "percent_saved": (pct * 10.0).round() / 10.0,
+        "original_tokens": result.original_tokens,
+        "compacted_tokens": result.compacted_tokens,
+        "elided_bodies": result.elided_bodies,
+        "summary": summary,
+        "cumulative": cumulative.map(|t| json!({
+            "compactions": t.compactions,
+            "tokens_saved": t.tokens_saved,
+            "note": "running total in this ledger — see aegis_audit for the full report",
+        })),
+        "text": result.text,
+    });
+    Ok(serde_json::to_string_pretty(&out)?)
 }
 
 fn tool_audit(args: &Value) -> Result<String> {

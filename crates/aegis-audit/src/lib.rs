@@ -216,6 +216,9 @@ pub struct AuditReport {
     pub intercepted: Vec<AuditedAction>,
     pub kernel_violations: usize,
     pub subagent_failures: usize,
+    /// Cumulative AST-compaction savings journaled in this ledger.
+    pub compactions: u64,
+    pub compaction_tokens_saved: u64,
     /// Optional, user-supplied economics — never fabricated.
     pub price_per_1k_tokens: Option<f64>,
     pub runs_per_day: Option<u64>,
@@ -253,12 +256,16 @@ impl AuditReport {
             }
         }
 
+        let totals = ledger.compaction_totals()?;
+
         Ok(AuditReport {
             runs: runs.len(),
             total_tokens,
             intercepted,
             kernel_violations,
             subagent_failures,
+            compactions: totals.compactions,
+            compaction_tokens_saved: totals.tokens_saved,
             price_per_1k_tokens,
             runs_per_day,
         })
@@ -319,10 +326,27 @@ impl AuditReport {
                 "  cost                         : pass --price-per-1k <USD> for a cost figure\n",
             ),
         }
-        s.push_str(
-            "  note                         : raw-vs-compacted AST savings require journaling\n\
-             \x20                                 compaction; not recorded in this ledger yet.\n",
-        );
+        // ── Compaction savings (measured, cumulative) ──
+        s.push_str("\n▸ Compaction Savings (measured)\n");
+        s.push_str(&format!(
+            "  files compacted              : {}\n",
+            self.compactions
+        ));
+        s.push_str(&format!(
+            "  tokens saved (cumulative)    : {}\n",
+            self.compaction_tokens_saved
+        ));
+        match self.price_per_1k_tokens {
+            Some(price) => {
+                let saved = self.compaction_tokens_saved as f64 / 1000.0 * price;
+                s.push_str(&format!(
+                    "  cost saved                   : ${saved:.4} @ ${price}/1k tokens\n"
+                ));
+            }
+            None => s.push_str(
+                "  cost saved                   : pass --price-per-1k <USD> for a dollar figure\n",
+            ),
+        }
         s
     }
 }
