@@ -14,6 +14,7 @@
 //! see `telemetry`.)
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,18 +29,45 @@ use sturdy_llm::ChatReasoner;
 
 use crate::{parse_lang, shell_tool_spec, ShellTool};
 
-/// MCP protocol revision we implement. We echo the client's requested version
-/// when it sends one, falling back to this.
+/// MCP protocol revision we advertise when the client asks for something we
+/// don't speak.
 const PROTOCOL_VERSION: &str = "2024-11-05";
+/// Revisions we're actually compatible with over the `tools/*` surface. We echo
+/// the client's version only if it's in here — claiming to speak a revision we
+/// haven't implemented is worse than negotiating down.
+const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18"];
 /// Groq's OpenAI-compatible endpoint. `aegis_run` is wired to it; the key comes
 /// from `GROQ_API_KEY` at call time and is never persisted.
 const GROQ_API_BASE: &str = "https://api.groq.com/openai/v1";
 const DEFAULT_GROQ_MODEL: &str = "llama-3.3-70b-versatile";
 
+/// Negotiate the protocol revision: echo the client's only if we speak it.
+fn negotiate_version(requested: Option<&str>) -> &'static str {
+    match requested {
+        Some(v) => SUPPORTED_PROTOCOL_VERSIONS
+            .iter()
+            .find(|s| **s == v)
+            .copied()
+            .unwrap_or(PROTOCOL_VERSION),
+        None => PROTOCOL_VERSION,
+    }
+}
+
+/// Shared, serialized handle to stdout. Concurrent request tasks all write
+/// through this, so two responses can never interleave mid-line.
+type SharedOut = Arc<tokio::sync::Mutex<Stdout>>;
+
 /// Serve the MCP protocol on stdio until stdin closes.
+///
+/// Requests are dispatched onto their own tasks, so a long `aegis_run` (up to a
+/// 120s wall-clock budget) can't stall `tools/list`, `ping`, or a concurrent
+/// `aegis_compact`. JSON-RPC correlates by `id`, so out-of-order replies are
+/// expected and fine.
 pub async fn serve_stdio() -> Result<()> {
     let mut reader = BufReader::new(tokio::io::stdin()).lines();
-    let mut stdout = tokio::io::stdout();
+    let out: SharedOut = Arc::new(tokio::sync::Mutex::new(tokio::io::stdout()));
+    // The MCP handshake must precede any tool traffic.
+    let initialized = Arc::new(AtomicBool::new(false));
 
     eprintln!(
         "aegis mcp: ready on stdio · tools: aegis_compact, aegis_audit, aegis_run \
@@ -55,7 +83,7 @@ pub async fn serve_stdio() -> Result<()> {
             Ok(v) => v,
             Err(e) => {
                 write_msg(
-                    &mut stdout,
+                    &out,
                     &json!({
                         "jsonrpc": "2.0", "id": null,
                         "error": { "code": -32700, "message": format!("parse error: {e}") }
@@ -73,32 +101,46 @@ pub async fn serve_stdio() -> Result<()> {
 
         match method {
             "initialize" => {
-                let version = params
-                    .get("protocolVersion")
-                    .and_then(Value::as_str)
-                    .unwrap_or(PROTOCOL_VERSION)
-                    .to_string();
+                let version =
+                    negotiate_version(params.get("protocolVersion").and_then(Value::as_str));
+                initialized.store(true, Ordering::SeqCst);
                 let result = json!({
                     "protocolVersion": version,
                     "capabilities": { "tools": {} },
                     "serverInfo": { "name": "aegis", "version": env!("CARGO_PKG_VERSION") },
                 });
-                reply(&mut stdout, id, Ok(result)).await?;
+                reply(&out, id, Ok(result)).await?;
             }
-            "ping" => reply(&mut stdout, id, Ok(json!({}))).await?,
-            "tools/list" => reply(&mut stdout, id, Ok(json!({ "tools": tool_specs() }))).await?,
+            "ping" => reply(&out, id, Ok(json!({}))).await?,
+            "tools/list" => {
+                if !initialized.load(Ordering::SeqCst) {
+                    reply(&out, id, Err(not_initialized())).await?;
+                } else {
+                    reply(&out, id, Ok(json!({ "tools": tool_specs() }))).await?;
+                }
+            }
             "tools/call" => {
-                // A tool failure is a *successful* JSON-RPC result carrying
+                if !initialized.load(Ordering::SeqCst) {
+                    reply(&out, id, Err(not_initialized())).await?;
+                    continue;
+                }
+                // Run off-loop so a slow tool doesn't block the reader. A tool
+                // failure is a *successful* JSON-RPC result carrying
                 // `isError: true`, per MCP — not a protocol-level error.
-                let result = handle_tool_call(&params).await;
-                reply(&mut stdout, id, Ok(result)).await?;
+                let out = Arc::clone(&out);
+                tokio::spawn(async move {
+                    let result = handle_tool_call(&params).await;
+                    if let Err(e) = reply(&out, id, Ok(result)).await {
+                        eprintln!("aegis mcp: failed to write response: {e}");
+                    }
+                });
             }
             // Notifications and anything we don't implement.
             "notifications/initialized" | "initialized" => {}
             other => {
                 if id.is_some() {
                     reply(
-                        &mut stdout,
+                        &out,
                         id,
                         Err((-32601, format!("method not found: {other}"))),
                     )
@@ -110,18 +152,28 @@ pub async fn serve_stdio() -> Result<()> {
     Ok(())
 }
 
-/// Write one newline-delimited JSON message and flush.
-async fn write_msg(out: &mut Stdout, msg: &Value) -> Result<()> {
+/// JSON-RPC error for tool traffic that arrives before the handshake.
+fn not_initialized() -> (i64, String) {
+    (
+        -32002,
+        "server not initialized: send `initialize` first".to_string(),
+    )
+}
+
+/// Write one newline-delimited JSON message and flush, holding the stdout lock
+/// only for the duration of the write.
+async fn write_msg(out: &SharedOut, msg: &Value) -> Result<()> {
     let mut s = serde_json::to_string(msg)?;
     s.push('\n');
-    out.write_all(s.as_bytes()).await?;
-    out.flush().await?;
+    let mut guard = out.lock().await;
+    guard.write_all(s.as_bytes()).await?;
+    guard.flush().await?;
     Ok(())
 }
 
 /// Reply to a request (no-op for notifications, which have no `id`).
 async fn reply(
-    out: &mut Stdout,
+    out: &SharedOut,
     id: Option<Value>,
     result: std::result::Result<Value, (i64, String)>,
 ) -> Result<()> {
@@ -140,7 +192,7 @@ fn tool_specs() -> Value {
     json!([
         {
             "name": "aegis_compact",
-            "description": "AST-aware token compaction. Parses a source file with Tree-sitter and returns its structural skeleton — signatures and types kept, function bodies elided — so a large file fits a token budget. Deterministic, no LLM. Pass `path` (read from disk, language auto-detected) OR `code` + `lang`.",
+            "description": "AST-aware token compaction. Parses a source file with Tree-sitter and returns its structural skeleton — signatures and types kept, function bodies elided — so a large file fits a token budget. Deterministic, no LLM. Pass `path` (read from disk, language auto-detected) OR `code` + `lang`. SIDE EFFECT: the token saving is journaled to the SQLite ledger at `db` (default ./aegis.sqlite, created if absent) so aegis_audit can report a cumulative total; set db to redirect it.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -580,5 +632,31 @@ mod tests {
             assert_eq!(t["inputSchema"]["type"], "object");
             assert!(t["description"].as_str().is_some_and(|d| d.len() > 40));
         }
+    }
+    #[test]
+    fn protocol_version_is_negotiated_not_blindly_echoed() {
+        // A revision we speak is echoed back...
+        assert_eq!(negotiate_version(Some("2025-06-18")), "2025-06-18");
+        assert_eq!(negotiate_version(Some("2024-11-05")), "2024-11-05");
+        // ...one we don't is negotiated down rather than falsely claimed.
+        assert_eq!(negotiate_version(Some("1999-01-01")), PROTOCOL_VERSION);
+        assert_eq!(negotiate_version(Some("")), PROTOCOL_VERSION);
+        assert_eq!(negotiate_version(None), PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn compact_tool_declares_its_ledger_side_effect() {
+        let specs = tool_specs();
+        let c = specs
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "aegis_compact")
+            .unwrap();
+        let desc = c["description"].as_str().unwrap();
+        assert!(
+            desc.contains("SIDE EFFECT"),
+            "the ledger write must be declared"
+        );
     }
 }

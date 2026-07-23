@@ -69,3 +69,14 @@ jobs:
 
       - name: aegis-web clippy
         run: cargo clippy --manifest-path crates/aegis-web/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
+
+  # Supply chain: fail the build on a RustSec advisory against anything in
+  # Cargo.lock. Unmaintained-crate warnings are reported but don't fail.
+  audit:
+    name: supply chain · cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
