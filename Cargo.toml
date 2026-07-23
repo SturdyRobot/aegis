@@ -1,21 +1,21 @@
-# SturdyHarness — a deterministic AI agent execution & verification harness.
-# The workspace root is also the `sturdy` CLI binary.
+# Aegis — a deterministic AI agent execution & verification harness.
+# The workspace root is also the `aegis` CLI binary.
 [package]
-name = "sturdy-harness"
+name = "aegis"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "A high-throughput, deterministic AI agent execution harness and verification engine."
-repository = "https://github.com/SturdyRobot/sturdy-harness"
-homepage = "https://github.com/SturdyRobot/sturdy-harness"
+repository = "https://github.com/SturdyRobot/aegis"
+homepage = "https://github.com/SturdyRobot/aegis"
 readme = "README.md"
 authors = ["Noel Jackson <noeljacksonjs@gmail.com>"]
 keywords = ["agent", "llm", "harness", "mcp", "ai"]
 categories = ["command-line-utilities", "development-tools"]
-default-run = "sturdy"
+default-run = "aegis"
 
 [[bin]]
-name = "sturdy"
+name = "aegis"
 path = "src/main.rs"
 
 [workspace]
@@ -27,7 +27,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["Noel Jackson <noeljacksonjs@gmail.com>"]
-repository = "https://github.com/SturdyRobot/sturdy-harness"
+repository = "https://github.com/SturdyRobot/aegis"
 
 # One source of truth for dependency versions across every crate.
 [workspace.dependencies]

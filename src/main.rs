@@ -1,4 +1,4 @@
-//! `sturdy` — the SturdyHarness command-line interface.
+//! `aegis` — the Aegis command-line interface.
 //!
 //! Wires the crates into a usable tool:
 //!   * `run`     — drive a ReAct agent under hard budgets, journaling every step
@@ -30,7 +30,7 @@ use sturdy_mcp::McpClient;
 
 /// A deterministic AI agent execution & verification harness.
 #[derive(Parser)]
-#[command(name = "sturdy", version, about, long_about = None)]
+#[command(name = "aegis", version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -50,16 +50,16 @@ enum Command {
     Ledger(LedgerArgs),
 }
 
-// For `run`, flags override `sturdy.toml`, which overrides the built-in defaults.
+// For `run`, flags override `aegis.toml`, which overrides the built-in defaults.
 // Overridable settings are `Option` so we can tell "not set" from a default.
 #[derive(Parser)]
 struct RunArgs {
     /// The natural-language goal for the agent.
     goal: String,
-    /// Config file to load (defaults to ./sturdy.toml if present).
+    /// Config file to load (defaults to ./aegis.toml if present).
     #[arg(long)]
     config: Option<PathBuf>,
-    /// SQLite ledger path. [config: db, default: sturdy.sqlite]
+    /// SQLite ledger path. [config: db, default: aegis.sqlite]
     #[arg(long)]
     db: Option<PathBuf>,
     /// Working directory the tools operate in.
@@ -124,7 +124,7 @@ struct VerifyArgs {
 struct ReplayArgs {
     /// The task id (UUID) to replay.
     task_id: String,
-    #[arg(long, default_value = "sturdy.sqlite")]
+    #[arg(long, default_value = "aegis.sqlite")]
     db: PathBuf,
     /// Emit the trajectory as JSON.
     #[arg(long)]
@@ -141,7 +141,7 @@ struct LedgerArgs {
 enum LedgerCommand {
     /// List every recorded run.
     List {
-        #[arg(long, default_value = "sturdy.sqlite")]
+        #[arg(long, default_value = "aegis.sqlite")]
         db: PathBuf,
         /// Emit the listing as JSON.
         #[arg(long)]
@@ -151,7 +151,7 @@ enum LedgerCommand {
     Show {
         /// The task id (UUID).
         task_id: String,
-        #[arg(long, default_value = "sturdy.sqlite")]
+        #[arg(long, default_value = "aegis.sqlite")]
         db: PathBuf,
         /// Emit as JSON.
         #[arg(long)]
@@ -159,7 +159,7 @@ enum LedgerCommand {
     },
 }
 
-/// Defaults for `run`, loaded from `sturdy.toml`. Every field is optional; CLI
+/// Defaults for `run`, loaded from `aegis.toml`. Every field is optional; CLI
 /// flags win, then the config, then the built-in defaults.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -175,13 +175,13 @@ struct Config {
 }
 
 impl Config {
-    /// Load from `path` (error if given but missing), else `./sturdy.toml` if it
+    /// Load from `path` (error if given but missing), else `./aegis.toml` if it
     /// exists, else an empty config.
     fn load(explicit: Option<&Path>) -> Result<Self> {
         let path = match explicit {
             Some(p) => p.to_path_buf(),
             None => {
-                let default = PathBuf::from("sturdy.toml");
+                let default = PathBuf::from("aegis.toml");
                 if !default.exists() {
                     return Ok(Config::default());
                 }
@@ -346,7 +346,7 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
     let json = a.json;
     let db =
         a.db.or(cfg.db)
-            .unwrap_or_else(|| PathBuf::from("sturdy.sqlite"));
+            .unwrap_or_else(|| PathBuf::from("aegis.sqlite"));
     let max_tokens = a.max_tokens.or(cfg.max_tokens).unwrap_or(100_000);
     let max_steps = a.max_steps.or(cfg.max_steps).unwrap_or(12);
     let max_secs = a.max_secs.or(cfg.max_secs).unwrap_or(120);
@@ -382,7 +382,7 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
                 .await
                 .context("launching MCP server")?;
             let info = client
-                .initialize("sturdy")
+                .initialize("aegis")
                 .await
                 .context("MCP initialize")?;
             let mcp_tools = client.list_tools().await.context("MCP tools/list")?;
@@ -482,7 +482,7 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
         budget.tokens_used()
     );
     println!(
-        "  replay with: sturdy replay {} --db {}",
+        "  replay with: aegis replay {} --db {}",
         task.id,
         db.display()
     );
