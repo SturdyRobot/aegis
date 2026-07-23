@@ -66,7 +66,7 @@ enum Command {
 
 #[derive(Parser)]
 struct ServeArgs {
-    #[arg(long, default_value = "aegis.sqlite")]
+    #[arg(long, env = "AEGIS_LEDGER_PATH", default_value = "aegis.sqlite")]
     db: PathBuf,
     /// Address to bind, e.g. 127.0.0.1:8787 or 0.0.0.0:8787.
     #[arg(long, default_value = "127.0.0.1:8787")]
@@ -75,7 +75,7 @@ struct ServeArgs {
 
 #[derive(Parser)]
 struct AuditArgs {
-    #[arg(long, default_value = "aegis.sqlite")]
+    #[arg(long, env = "AEGIS_LEDGER_PATH", default_value = "aegis.sqlite")]
     ledger: PathBuf,
     /// Your API price per 1k tokens (USD) — supply it for a cost figure.
     #[arg(long)]
@@ -92,7 +92,7 @@ struct AuditArgs {
 struct ResumeArgs {
     /// The run id (UUID) to resume.
     run_id: String,
-    #[arg(long, default_value = "aegis.sqlite")]
+    #[arg(long, env = "AEGIS_LEDGER_PATH", default_value = "aegis.sqlite")]
     db: PathBuf,
     /// Resume even if the run was still 'running' when journaled (possible crash
     /// mid-action). Past steps are never re-executed, but acknowledges the risk
@@ -196,7 +196,7 @@ struct VerifyArgs {
 struct ReplayArgs {
     /// The task id (UUID) to replay.
     task_id: String,
-    #[arg(long, default_value = "aegis.sqlite")]
+    #[arg(long, env = "AEGIS_LEDGER_PATH", default_value = "aegis.sqlite")]
     db: PathBuf,
     /// Emit the trajectory as JSON.
     #[arg(long)]
@@ -213,7 +213,7 @@ struct LedgerArgs {
 enum LedgerCommand {
     /// List every recorded run.
     List {
-        #[arg(long, default_value = "aegis.sqlite")]
+        #[arg(long, env = "AEGIS_LEDGER_PATH", default_value = "aegis.sqlite")]
         db: PathBuf,
         /// Emit the listing as JSON.
         #[arg(long)]
@@ -223,7 +223,7 @@ enum LedgerCommand {
     Show {
         /// The task id (UUID).
         task_id: String,
-        #[arg(long, default_value = "aegis.sqlite")]
+        #[arg(long, env = "AEGIS_LEDGER_PATH", default_value = "aegis.sqlite")]
         db: PathBuf,
         /// Emit as JSON.
         #[arg(long)]
