@@ -13,6 +13,11 @@ aegis-audit = { path = "../aegis-audit" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# For WebhookApprover — notify an external approver (Slack/dashboard) over HTTP.
+reqwest = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

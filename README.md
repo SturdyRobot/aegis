@@ -68,6 +68,11 @@ Aegis is a small workspace of composable crates, each a clean trait implementati
 - **Python bindings** (`aegis-bridge` → `pip install aegis-rt`) — call the AST
   compactor, tool classifier, policy matcher, and forensic audit from Python. A
   `maturin`-built abi3 wheel; a separate, workspace-excluded crate.
+- **HTTP control API** (`aegis serve`, `aegis-server`/axum) — inspect runs
+  (`GET /runs`, `/runs/{id}`) and **resolve HITL approvals remotely**
+  (`GET /approvals`, `POST /approvals/{id}`), so a dashboard/Slack/web UI can drive
+  Aegis instead of a terminal. Pairs with `aegis-hitl`'s `WebhookApprover` — HITL
+  approvals come from a webhook + this API, not just stdin `y/N`.
 
 ## Install
 
@@ -223,6 +228,8 @@ aegis run … --audit                        shadow dry-run: read tools run for 
                                             mutating tools are intercepted + journaled
 aegis run … --hitl                         human-in-the-loop: pause + ask (y/N) before
                                             each mutating tool runs (decisions journaled)
+aegis serve [--db] [--addr]                HTTP control API: GET /runs, /runs/<id>,
+                                            /approvals · POST /approvals/<id>
 aegis audit --ledger <db>                  forensic report: intercepted mutations +
         --price-per-1k <USD>                measured token/cost (cost only from your
         --runs-per-day <N>                  explicit price/volume inputs)
