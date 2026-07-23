@@ -84,6 +84,17 @@ pub enum Event {
         output: String,
         is_error: bool,
     },
+    /// A kernel-boundary security violation reported by `aegis-probe`'s eBPF
+    /// supervisor — e.g. a blocked `execve`, `connect`, or write to a protected path.
+    KernelSecurityViolation {
+        pid: u32,
+        tgid: u32,
+        /// The violated boundary: "exec" | "connect" | "write".
+        /// (Named `boundary`, not `kind`, to avoid clashing with the serde tag.)
+        boundary: String,
+        /// What was attempted (the exec path, destination address, or file path).
+        detail: String,
+    },
 }
 
 impl Event {
@@ -91,6 +102,7 @@ impl Event {
     pub fn category(&self) -> &'static str {
         match self {
             Event::McpToolExecution { .. } => "mcp_tool_execution",
+            Event::KernelSecurityViolation { .. } => "kernel_security_violation",
         }
     }
 }

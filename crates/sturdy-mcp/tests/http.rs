@@ -196,5 +196,6 @@ async fn manager_routes_calls_and_journals_mcp_events() {
             assert_eq!(output, "http:echo");
             assert!(!is_error);
         }
+        other => panic!("unexpected event: {other:?}"),
     }
 }

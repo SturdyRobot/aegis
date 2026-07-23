@@ -1,0 +1,10 @@
+# Build for the little-endian BPF target, building `core` from source.
+[build]
+target = "bpfel-unknown-none"
+
+[unstable]
+build-std = ["core"]
+
+# Requires `bpf-linker` on PATH:  cargo install bpf-linker
+[target.bpfel-unknown-none]
+rustflags = ["-C", "linker=bpf-linker", "-C", "link-arg=--btf"]

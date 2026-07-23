@@ -20,6 +20,11 @@ path = "src/main.rs"
 
 [workspace]
 members = ["crates/*"]
+# The eBPF kernel object is a no_std crate for the `bpfel-unknown-none` target and
+# needs a nightly toolchain + bpf-linker. Excluded so the normal workspace build
+# (and CI) stays kernel-free and cross-platform. Build it separately — see
+# crates/aegis-probe/BUILD_EBPF.md.
+exclude = ["crates/aegis-probe-ebpf"]
 resolver = "2"
 
 [workspace.package]
