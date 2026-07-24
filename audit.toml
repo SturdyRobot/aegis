@@ -1,0 +1,15 @@
+# cargo-audit configuration (read by `cargo audit` and the CI audit job).
+#
+# There are zero security vulnerabilities in the dependency tree. The only
+# finding is an *unmaintained* advisory, which the CI action treats as a
+# failure while local `cargo audit` treats as a warning. We acknowledge it
+# explicitly here rather than let it red the build.
+
+[advisories]
+ignore = [
+    # number_prefix 0.4.0 — unmaintained, pulled transitively by `indicatif`
+    # (the CLI progress spinner). It only formats byte-size prefixes; there is
+    # no vulnerability and no maintained drop-in. Re-evaluate if `indicatif`
+    # drops the dependency or a real advisory (different ID) appears.
+    "RUSTSEC-2025-0119",
+]

@@ -70,8 +70,10 @@ jobs:
       - name: kedge-web clippy
         run: cargo clippy --manifest-path crates/kedge-web/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
 
-  # Supply chain: fail the build on a RustSec advisory against anything in
-  # Cargo.lock. Unmaintained-crate warnings are reported but don't fail.
+  # Supply chain: fail the build on a RustSec *vulnerability* against anything in
+  # Cargo.lock. This action, unlike a bare `cargo audit`, also fails on
+  # unmaintained-crate advisories — so those are ignored explicitly (see
+  # audit.toml for the rationale) to keep the gate about real vulnerabilities.
   audit:
     name: supply chain · cargo audit
     runs-on: ubuntu-latest
@@ -80,3 +82,5 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # number_prefix: unmaintained, transitive via indicatif, no vuln.
+          ignore: RUSTSEC-2025-0119
