@@ -7,7 +7,7 @@
 //! is deterministic and can never run away.
 
 use std::sync::Arc;
-use std::time::Instant;
+use web_time::Instant;
 
 use async_trait::async_trait;
 use tracing::Instrument;

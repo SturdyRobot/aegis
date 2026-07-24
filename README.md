@@ -2,6 +2,11 @@
 
 [![CI](https://github.com/SturdyRobot/aegis/actions/workflows/ci.yml/badge.svg)](https://github.com/SturdyRobot/aegis/actions/workflows/ci.yml)
 [![License: BUSL-1.1](https://img.shields.io/badge/license-BUSL--1.1-orange.svg)](LICENSE)
+[![Try it live](https://img.shields.io/badge/demo-run%20it%20in%20your%20browser-5ac8fa)](https://sturdyrobot.io)
+
+> **Run the engine in your browser** → **[sturdyrobot.io](https://sturdyrobot.io)** (open the 🦀 Aegis icon)
+> The real ReAct engine compiled to WebAssembly — deterministic Think → Act → Observe,
+> executing entirely client-side. No server, no API key, no network.
 
 A deterministic AI-agent execution and verification harness, written in Rust.
 

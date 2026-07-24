@@ -6,7 +6,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use crate::error::{BudgetKind, HarnessError, Result};
 
@@ -129,13 +130,25 @@ impl BudgetTracker {
                 limit: self.inner.budget.wall_clock.as_millis() as u64,
             });
         }
-        match tokio::time::timeout(remaining, fut).await {
-            Ok(inner) => inner,
-            Err(_) => Err(HarnessError::BudgetExceeded {
-                kind: BudgetKind::WallClock,
-                used: self.inner.budget.wall_clock.as_millis() as u64,
-                limit: self.inner.budget.wall_clock.as_millis() as u64,
-            }),
+        // Native: enforce the mid-await wall-clock cap via tokio's timer.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            match tokio::time::timeout(remaining, fut).await {
+                Ok(inner) => inner,
+                Err(_) => Err(HarnessError::BudgetExceeded {
+                    kind: BudgetKind::WallClock,
+                    used: self.inner.budget.wall_clock.as_millis() as u64,
+                    limit: self.inner.budget.wall_clock.as_millis() as u64,
+                }),
+            }
+        }
+        // wasm: no tokio time driver under the wasm-bindgen executor. The deadline
+        // is still checked before each step (`check_deadline`), and the step/token
+        // budgets still bound the run — we just can't abort mid-await in the browser.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = remaining;
+            fut.await
         }
     }
 

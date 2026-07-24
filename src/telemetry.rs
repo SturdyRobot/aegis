@@ -29,7 +29,12 @@ fn env_filter() -> EnvFilter {
 /// Install the global subscriber. Always wires the `fmt` logger; additionally
 /// wires an OTLP layer when the `otel` feature is on and an endpoint is configured.
 pub fn init() -> TelemetryGuard {
-    let fmt_layer = tracing_subscriber::fmt::layer().with_target(false);
+    // Logs go to stderr, never stdout: stdout is reserved for data (`--json`
+    // output, and the `mcp` server's JSON-RPC stream, which a stray log line
+    // would corrupt).
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_target(false)
+        .with_writer(std::io::stderr);
 
     #[cfg(feature = "otel")]
     {

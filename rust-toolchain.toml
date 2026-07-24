@@ -1,0 +1,9 @@
+# Pin the toolchain so a contributor's local `cargo fmt`/`clippy` matches what CI
+# gates on. Without this, a newer rustfmt reflows code CI then rejects — a
+# confusing first contribution experience.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+# `aegis-web` targets the browser; keeping it here means `cargo build
+# --target wasm32-unknown-unknown` works after a plain `rustup` bootstrap.
+targets = ["wasm32-unknown-unknown"]
