@@ -1,9 +1,0 @@
-<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kedge">
-  <title>Kedge</title>
-  <!-- Cleaver K for dark backgrounds (terminals, dark READMEs). -->
-  <g fill="#5ac8fa">
-    <polygon points="26,14 44,14 50,106 32,106"/>
-    <polygon points="47,44 106,6 49,68"/>
-    <polygon points="48,52 110,114 50,76"/>
-  </g>
-</svg>
