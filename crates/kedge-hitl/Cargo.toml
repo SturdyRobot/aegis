@@ -9,7 +9,7 @@ repository.workspace = true
 [dependencies]
 kedge-core = { workspace = true }
 kedge-ledger = { workspace = true }
-kedge-audit = { path = "../kedge-audit" }
+kedge-audit = { path = "../kedge-audit", version = "0.1.0" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }

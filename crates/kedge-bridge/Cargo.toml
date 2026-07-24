@@ -17,7 +17,7 @@ crate-type = ["cdylib"]
 # abi3-py39: build against the stable ABI so the wheel works on CPython ≥3.9
 # (including brand-new releases) without pinning to a pyo3 that knows that version.
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
-kedge-compact = { path = "../kedge-compact" }
-kedge-policy = { path = "../kedge-policy" }
-kedge-audit = { path = "../kedge-audit" }
+kedge-compact = { path = "../kedge-compact", version = "0.1.0" }
+kedge-policy = { path = "../kedge-policy", version = "0.1.0" }
+kedge-audit = { path = "../kedge-audit", version = "0.1.0" }
 sha2 = "0.10"

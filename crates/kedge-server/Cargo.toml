@@ -9,7 +9,7 @@ repository.workspace = true
 [dependencies]
 kedge-core = { workspace = true }
 kedge-ledger = { workspace = true }
-kedge-hitl = { path = "../kedge-hitl" }
+kedge-hitl = { path = "../kedge-hitl", version = "0.1.0" }
 axum = "0.7"
 tokio = { workspace = true }
 serde = { workspace = true }
