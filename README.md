@@ -1,10 +1,16 @@
-# Kedge
+<p align="center">
+  <img src="assets/icon.svg" width="92" height="92" alt="Kedge">
+</p>
 
-[![CI](https://github.com/SturdyRobot/kedge/actions/workflows/ci.yml/badge.svg)](https://github.com/SturdyRobot/kedge/actions/workflows/ci.yml)
-[![License: BUSL-1.1](https://img.shields.io/badge/license-BUSL--1.1-orange.svg)](LICENSE)
-[![Try it live](https://img.shields.io/badge/demo-run%20it%20in%20your%20browser-5ac8fa)](https://sturdyrobot.io)
+<h1 align="center">Kedge</h1>
 
-> **Run the engine in your browser** → **[sturdyrobot.io](https://sturdyrobot.io)** (open the 🦀 Kedge icon)
+<p align="center">
+  <a href="https://github.com/SturdyRobot/kedge/actions/workflows/ci.yml"><img src="https://github.com/SturdyRobot/kedge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-BUSL--1.1-orange.svg" alt="License: BUSL-1.1"></a>
+  <a href="https://sturdyrobot.io"><img src="https://img.shields.io/badge/demo-run%20it%20in%20your%20browser-5ac8fa" alt="Try it live"></a>
+</p>
+
+> **Run the engine in your browser** → **[sturdyrobot.io](https://sturdyrobot.io)** (open the Kedge icon)
 > The real ReAct engine compiled to WebAssembly — deterministic Think → Act → Observe,
 > executing entirely client-side. No server, no API key, no network.
 

@@ -1,0 +1,10 @@
+<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kedge">
+  <title>Kedge</title>
+  <!-- The "Cleaver" K: a raked stem with swept-back arms tapering to points —
+       the letter as a cutting edge, for the "edge" in Kedge. -->
+  <g fill="#1B6CA8">
+    <polygon points="26,14 44,14 50,106 32,106"/>
+    <polygon points="47,44 106,6 49,68"/>
+    <polygon points="48,52 110,114 50,76"/>
+  </g>
+</svg>

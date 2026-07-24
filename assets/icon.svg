@@ -1,0 +1,12 @@
+<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kedge icon">
+  <title>Kedge</title>
+  <!-- App-icon / favicon form: the Cleaver K knocked out of a rounded tile.
+       Theme-independent — the tile carries its own background, so it reads
+       correctly on any surface and holds shape down to favicon size. -->
+  <rect width="120" height="120" rx="26" fill="#1B6CA8"/>
+  <g fill="#ffffff" transform="translate(12.4,18) scale(0.70)">
+    <polygon points="26,14 44,14 50,106 32,106"/>
+    <polygon points="47,44 106,6 49,68"/>
+    <polygon points="48,52 110,114 50,76"/>
+  </g>
+</svg>
