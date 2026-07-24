@@ -1,0 +1,28 @@
+# Kernel-side eBPF programs for kedge-probe. NOT part of the Kedge workspace
+# (excluded in the root Cargo.toml) — it targets `bpfel-unknown-none`, is no_std,
+# and needs a nightly toolchain + bpf-linker. See ../kedge-probe/BUILD_EBPF.md.
+[package]
+name = "kedge-probe-ebpf"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Pin to the exact versions matching the user-space `aya` in kedge-probe.
+aya-ebpf = "0.1"
+aya-log-ebpf = "0.1"
+
+[[bin]]
+name = "kedge-probe-ebpf"
+path = "src/main.rs"
+
+# The BPF verifier rejects debug-shaped code; always optimize.
+[profile.dev]
+opt-level = 3
+debug = false
+overflow-checks = false
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1

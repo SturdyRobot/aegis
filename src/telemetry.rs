@@ -1,6 +1,6 @@
 //! Tracing setup, plus an optional OpenTelemetry (OTLP) export layer.
 //!
-//! Everything in Aegis is already instrumented with `tracing` spans; this module
+//! Everything in Kedge is already instrumented with `tracing` spans; this module
 //! decides where those spans go. By default they go to the human `fmt` logger and
 //! nothing else — no OpenTelemetry code is even compiled in.
 //!
@@ -45,7 +45,7 @@ pub fn init() -> TelemetryGuard {
                 Ok(provider) => {
                     use opentelemetry::trace::TracerProvider as _;
                     let layer =
-                        tracing_opentelemetry::layer().with_tracer(provider.tracer("aegis"));
+                        tracing_opentelemetry::layer().with_tracer(provider.tracer("kedge"));
                     tracing_subscriber::registry()
                         .with(env_filter())
                         .with(fmt_layer)
@@ -57,7 +57,7 @@ pub fn init() -> TelemetryGuard {
                     };
                 }
                 // Degrade silently to fmt-only; one line to stderr, never a panic.
-                Err(e) => eprintln!("aegis: OTLP export disabled ({e})"),
+                Err(e) => eprintln!("kedge: OTLP export disabled ({e})"),
             },
             _ => {}
         }
@@ -92,10 +92,10 @@ mod otel {
     use opentelemetry_sdk::Resource;
 
     /// Build a batch OTLP tracer provider pointed at `endpoint`. Honors
-    /// `OTEL_SERVICE_NAME` (default `"aegis"`).
+    /// `OTEL_SERVICE_NAME` (default `"kedge"`).
     pub fn build_provider(endpoint: &str) -> anyhow::Result<SdkTracerProvider> {
         let service_name =
-            std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "aegis".to_string());
+            std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "kedge".to_string());
 
         let exporter = SpanExporter::builder()
             .with_tonic()
