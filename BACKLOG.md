@@ -34,11 +34,12 @@ classification, the policy matcher, and the forensic audit as an **abi3 wheel**
 (one wheel, CPython ≥3.9). Verified end-to-end with a real `import aegis_rt`.
 *Follow-on:* async agent execution + subagent supervision from Python.
 
-### 🚀 2. WebAssembly (`aegis-web`) — DO NEXT
-Powers the live in-browser terminal on **sturdyrobot.io** — the visual showpiece
-for recruiters, investors, and engineers. Needs `wasm-pack` + making `aegis-core`
-wasm-clean (feature-gate tokio/uuid, a wasm reasoner, an in-memory ledger). The
-highest-leverage item for the hiring goal specifically (click-and-watch demo).
+### ✅ 2. WebAssembly (`aegis-web`) — SHIPPED
+Live on **sturdyrobot.io** (the 🦀 Aegis icon), running the real `sturdy-core`
+engine client-side at ~137 KB. Making core wasm-clean meant target-gating
+tokio/uuid (dropping `net` to avoid `mio`), swapping `std::time::Instant` for
+`web-time::Instant` (std's panics on wasm), and gating the wall-clock timeout.
+A CI job now builds core + `aegis-web` for `wasm32` so it can't silently rot.
 
 ### ⏳ 3. TypeScript (`napi-rs`) — POST-LAUNCH
 `npm install aegis-rt`. TypeScript/Node.js is the second-largest AI ecosystem
