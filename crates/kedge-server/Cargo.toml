@@ -1,0 +1,22 @@
+[package]
+name = "kedge-server"
+description = "Embedded REST control API for Kedge — inspect runs and resolve pending HITL approvals over HTTP."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kedge-core = { workspace = true }
+kedge-ledger = { workspace = true }
+kedge-hitl = { path = "../kedge-hitl", version = "0.1.0" }
+axum = "0.7"
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+reqwest = { workspace = true }

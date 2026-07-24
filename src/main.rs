@@ -1,4 +1,4 @@
-//! `aegis` — the Aegis command-line interface.
+//! `kedge` — the Kedge command-line interface.
 //!
 //! Wires the crates into a usable tool:
 //!   * `run`     — drive a ReAct agent under hard budgets, journaling every step
@@ -18,22 +18,22 @@ use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Deserialize;
 
-use sturdy_compact::{Compactor, Language};
-use sturdy_core::{
+use kedge_compact::{Compactor, Language};
+use kedge_core::{
     Action, Budget, Decision, HarnessError, Observation, Outcome, ReActEngine, Reasoner, Task,
     TaskId, Thought, ToolCall, ToolExecutor, Trajectory,
 };
-use sturdy_exec::{verify, CommandSpec};
-use sturdy_ledger::Ledger;
-use sturdy_llm::{ChatReasoner, ToolSpec};
-use sturdy_mcp::McpClient;
+use kedge_exec::{verify, CommandSpec};
+use kedge_ledger::Ledger;
+use kedge_llm::{ChatReasoner, ToolSpec};
+use kedge_mcp::McpClient;
 
 mod mcp_server;
 mod telemetry;
 
 /// A deterministic AI agent execution & verification harness.
 #[derive(Parser)]
-#[command(name = "aegis", version, about, long_about = None)]
+#[command(name = "kedge", version, about, long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -59,14 +59,14 @@ enum Command {
     Resume(ResumeArgs),
     /// Serve the HTTP control API (inspect runs, resolve HITL approvals remotely).
     Serve(ServeArgs),
-    /// Run as an MCP server over stdio, exposing Aegis tools (compact, audit, run)
+    /// Run as an MCP server over stdio, exposing Kedge tools (compact, audit, run)
     /// to any MCP client (e.g. Claude Code).
     Mcp,
 }
 
 #[derive(Parser)]
 struct ServeArgs {
-    #[arg(long, env = "AEGIS_LEDGER_PATH", default_value = "aegis.sqlite")]
+    #[arg(long, env = "KEDGE_LEDGER_PATH", default_value = "kedge.sqlite")]
     db: PathBuf,
     /// Address to bind, e.g. 127.0.0.1:8787 or 0.0.0.0:8787.
     #[arg(long, default_value = "127.0.0.1:8787")]
@@ -75,7 +75,7 @@ struct ServeArgs {
 
 #[derive(Parser)]
 struct AuditArgs {
-    #[arg(long, env = "AEGIS_LEDGER_PATH", default_value = "aegis.sqlite")]
+    #[arg(long, env = "KEDGE_LEDGER_PATH", default_value = "kedge.sqlite")]
     ledger: PathBuf,
     /// Your API price per 1k tokens (USD) — supply it for a cost figure.
     #[arg(long)]
@@ -92,7 +92,7 @@ struct AuditArgs {
 struct ResumeArgs {
     /// The run id (UUID) to resume.
     run_id: String,
-    #[arg(long, env = "AEGIS_LEDGER_PATH", default_value = "aegis.sqlite")]
+    #[arg(long, env = "KEDGE_LEDGER_PATH", default_value = "kedge.sqlite")]
     db: PathBuf,
     /// Resume even if the run was still 'running' when journaled (possible crash
     /// mid-action). Past steps are never re-executed, but acknowledges the risk
@@ -106,7 +106,7 @@ struct EvalArgs {
     /// Path to the eval suite JSON (names the baseline ledger + metrics).
     #[arg(long)]
     suite: PathBuf,
-    /// Candidate ledger (a fresh `aegis run`) to compare against the baseline.
+    /// Candidate ledger (a fresh `kedge run`) to compare against the baseline.
     #[arg(long)]
     candidate: PathBuf,
     /// Report format for CI.
@@ -114,16 +114,16 @@ struct EvalArgs {
     output_format: String,
 }
 
-// For `run`, flags override `aegis.toml`, which overrides the built-in defaults.
+// For `run`, flags override `kedge.toml`, which overrides the built-in defaults.
 // Overridable settings are `Option` so we can tell "not set" from a default.
 #[derive(Parser)]
 struct RunArgs {
     /// The natural-language goal for the agent.
     goal: String,
-    /// Config file to load (defaults to ./aegis.toml if present).
+    /// Config file to load (defaults to ./kedge.toml if present).
     #[arg(long)]
     config: Option<PathBuf>,
-    /// SQLite ledger path. [config: db, default: aegis.sqlite]
+    /// SQLite ledger path. [config: db, default: kedge.sqlite]
     #[arg(long)]
     db: Option<PathBuf>,
     /// Working directory the tools operate in.
@@ -196,7 +196,7 @@ struct VerifyArgs {
 struct ReplayArgs {
     /// The task id (UUID) to replay.
     task_id: String,
-    #[arg(long, env = "AEGIS_LEDGER_PATH", default_value = "aegis.sqlite")]
+    #[arg(long, env = "KEDGE_LEDGER_PATH", default_value = "kedge.sqlite")]
     db: PathBuf,
     /// Emit the trajectory as JSON.
     #[arg(long)]
@@ -213,7 +213,7 @@ struct LedgerArgs {
 enum LedgerCommand {
     /// List every recorded run.
     List {
-        #[arg(long, env = "AEGIS_LEDGER_PATH", default_value = "aegis.sqlite")]
+        #[arg(long, env = "KEDGE_LEDGER_PATH", default_value = "kedge.sqlite")]
         db: PathBuf,
         /// Emit the listing as JSON.
         #[arg(long)]
@@ -223,7 +223,7 @@ enum LedgerCommand {
     Show {
         /// The task id (UUID).
         task_id: String,
-        #[arg(long, env = "AEGIS_LEDGER_PATH", default_value = "aegis.sqlite")]
+        #[arg(long, env = "KEDGE_LEDGER_PATH", default_value = "kedge.sqlite")]
         db: PathBuf,
         /// Emit as JSON.
         #[arg(long)]
@@ -231,7 +231,7 @@ enum LedgerCommand {
     },
 }
 
-/// Defaults for `run`, loaded from `aegis.toml`. Every field is optional; CLI
+/// Defaults for `run`, loaded from `kedge.toml`. Every field is optional; CLI
 /// flags win, then the config, then the built-in defaults.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -247,13 +247,13 @@ struct Config {
 }
 
 impl Config {
-    /// Load from `path` (error if given but missing), else `./aegis.toml` if it
+    /// Load from `path` (error if given but missing), else `./kedge.toml` if it
     /// exists, else an empty config.
     fn load(explicit: Option<&Path>) -> Result<Self> {
         let path = match explicit {
             Some(p) => p.to_path_buf(),
             None => {
-                let default = PathBuf::from("aegis.toml");
+                let default = PathBuf::from("kedge.toml");
                 if !default.exists() {
                     return Ok(Config::default());
                 }
@@ -277,7 +277,7 @@ struct DemoReasoner;
 
 #[async_trait]
 impl Reasoner for DemoReasoner {
-    async fn next_action(&self, task: &Task, traj: &Trajectory) -> sturdy_core::Result<Decision> {
+    async fn next_action(&self, task: &Task, traj: &Trajectory) -> kedge_core::Result<Decision> {
         let (thought, action, tokens) = match traj.len() {
             0 => (
                 "Establish the toolchain before touching the project.",
@@ -319,7 +319,7 @@ impl Reasoner for DemoReasoner {
     }
 }
 
-/// Executes a small built-in toolset backed by `sturdy-exec`.
+/// Executes a small built-in toolset backed by `kedge-exec`.
 struct ShellTool {
     cwd: PathBuf,
     timeout: Duration,
@@ -327,7 +327,7 @@ struct ShellTool {
 
 #[async_trait]
 impl ToolExecutor for ShellTool {
-    async fn execute(&self, call: &ToolCall) -> sturdy_core::Result<Observation> {
+    async fn execute(&self, call: &ToolCall) -> kedge_core::Result<Observation> {
         match call.name.as_str() {
             "shell" => {
                 let cmd = call.arguments["cmd"]
@@ -345,7 +345,7 @@ impl ToolExecutor for ShellTool {
                     .args(args)
                     .cwd(&self.cwd)
                     .timeout(self.timeout);
-                let out = sturdy_exec::run(&spec).await.map_err(HarnessError::from)?;
+                let out = kedge_exec::run(&spec).await.map_err(HarnessError::from)?;
                 if out.success() {
                     Ok(Observation::ok(out.stdout.trim().to_string()))
                 } else if out.timed_out {
@@ -416,12 +416,12 @@ async fn main() -> Result<()> {
 /// approvals API resolves requests from agents sharing this process's registry.
 async fn cmd_serve(a: ServeArgs) -> Result<()> {
     let ledger = Ledger::open(&a.db).context("opening ledger")?;
-    let approvals = aegis_hitl::PendingApprovals::new();
+    let approvals = kedge_hitl::PendingApprovals::new();
     let addr: std::net::SocketAddr = a.addr.parse().context("parsing --addr")?;
     println!(
-        "🌐 aegis control API on http://{addr}\n   GET /runs · GET /runs/<id> · GET /approvals · POST /approvals/<id>"
+        "🌐 kedge control API on http://{addr}\n   GET /runs · GET /runs/<id> · GET /approvals · POST /approvals/<id>"
     );
-    aegis_server::serve(ledger, approvals, addr)
+    kedge_server::serve(ledger, approvals, addr)
         .await
         .context("control API server")?;
     Ok(())
@@ -429,7 +429,7 @@ async fn cmd_serve(a: ServeArgs) -> Result<()> {
 
 /// Produce the Shadow-Guard forensic report from a ledger.
 fn cmd_audit(a: AuditArgs) -> Result<()> {
-    let report = aegis_audit::AuditReport::from_ledger(&a.ledger, a.price_per_1k, a.runs_per_day)
+    let report = kedge_audit::AuditReport::from_ledger(&a.ledger, a.price_per_1k, a.runs_per_day)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     if a.json {
         println!("{}", report.to_json());
@@ -500,12 +500,12 @@ async fn cmd_resume(a: ResumeArgs) -> Result<()> {
 
 /// Compare a candidate run against a baseline suite; exit non-zero on regression.
 fn cmd_eval(a: EvalArgs) -> Result<()> {
-    let format: aegis_eval::OutputFormat = a
+    let format: kedge_eval::OutputFormat = a
         .output_format
         .parse()
         .map_err(|e: String| anyhow::anyhow!(e))?;
     let code =
-        aegis_eval::run_eval(&a.suite, &a.candidate, format).map_err(|e| anyhow::anyhow!("{e}"))?;
+        kedge_eval::run_eval(&a.suite, &a.candidate, format).map_err(|e| anyhow::anyhow!("{e}"))?;
     std::process::exit(code);
 }
 
@@ -515,7 +515,7 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
     let json = a.json;
     let db =
         a.db.or(cfg.db)
-            .unwrap_or_else(|| PathBuf::from("aegis.sqlite"));
+            .unwrap_or_else(|| PathBuf::from("kedge.sqlite"));
     let max_tokens = a.max_tokens.or(cfg.max_tokens).unwrap_or(100_000);
     let max_steps = a.max_steps.or(cfg.max_steps).unwrap_or(12);
     let max_secs = a.max_secs.or(cfg.max_secs).unwrap_or(120);
@@ -550,7 +550,7 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
             let client = McpClient::connect_stdio(&program, &args)
                 .await
                 .context("launching MCP server")?;
-            let info = client.initialize("aegis").await.context("MCP initialize")?;
+            let info = client.initialize("kedge").await.context("MCP initialize")?;
             let mcp_tools = client.list_tools().await.context("MCP tools/list")?;
             if !json {
                 println!(
@@ -604,7 +604,7 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
         if !json {
             println!("🛡  shadow-audit: mutating tools will be intercepted (nothing is executed)");
         }
-        Arc::new(aegis_audit::AuditExecutor::new(
+        Arc::new(kedge_audit::AuditExecutor::new(
             tools,
             Some(Arc::new(ledger.clone())),
             task.id,
@@ -613,9 +613,9 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
         if !json {
             println!("🙋 human-in-the-loop: you'll be asked to approve each mutating tool");
         }
-        Arc::new(aegis_hitl::ApprovalGate::new(
+        Arc::new(kedge_hitl::ApprovalGate::new(
             tools,
-            Arc::new(aegis_hitl::CliApprover),
+            Arc::new(kedge_hitl::CliApprover),
             Some(Arc::new(ledger.clone())),
             task.id,
         ))
@@ -673,7 +673,7 @@ async fn cmd_run(a: RunArgs) -> Result<()> {
         budget.tokens_used()
     );
     println!(
-        "  replay with: aegis replay {} --db {}",
+        "  replay with: kedge replay {} --db {}",
         task.id,
         db.display()
     );

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "kedge-rt"
+version = "0.1.0"
+description = "Python bindings for Kedge — AST compaction, tool safety classification, policy, and forensic audit."
+requires-python = ">=3.9"
+license = { text = "BUSL-1.1" }
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+]
+
+[tool.maturin]
+# The import name comes from Cargo.toml's [lib] name = "kedge_rt".
+strip = true

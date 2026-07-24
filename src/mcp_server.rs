@@ -1,12 +1,12 @@
-//! `aegis mcp` — an MCP (Model Context Protocol) **server** over stdio.
+//! `kedge mcp` — an MCP (Model Context Protocol) **server** over stdio.
 //!
-//! Aegis is normally an MCP *client* (it consumes tools); this flips it around so
-//! any MCP client — Claude Code, in particular — can call Aegis's own
+//! Kedge is normally an MCP *client* (it consumes tools); this flips it around so
+//! any MCP client — Claude Code, in particular — can call Kedge's own
 //! capabilities as native tools:
 //!
-//! * `aegis_compact` — AST-aware token compaction of a source file (deterministic)
-//! * `aegis_audit`   — forensic cost/security report from a ledger (deterministic)
-//! * `aegis_run`     — a bounded, journaled ReAct agent driven by a Groq model
+//! * `kedge_compact` — AST-aware token compaction of a source file (deterministic)
+//! * `kedge_audit`   — forensic cost/security report from a ledger (deterministic)
+//! * `kedge_run`     — a bounded, journaled ReAct agent driven by a Groq model
 //!
 //! Transport is newline-delimited JSON-RPC 2.0 on stdin/stdout, per the MCP stdio
 //! spec. **stdout carries the protocol** — so the handlers here call the crates
@@ -22,10 +22,10 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdout};
 
-use sturdy_compact::Compactor;
-use sturdy_core::{Budget, ReActEngine, Reasoner, Task, ToolExecutor};
-use sturdy_ledger::Ledger;
-use sturdy_llm::ChatReasoner;
+use kedge_compact::Compactor;
+use kedge_core::{Budget, ReActEngine, Reasoner, Task, ToolExecutor};
+use kedge_ledger::Ledger;
+use kedge_llm::ChatReasoner;
 
 use crate::{parse_lang, shell_tool_spec, ShellTool};
 
@@ -36,7 +36,7 @@ const PROTOCOL_VERSION: &str = "2024-11-05";
 /// the client's version only if it's in here — claiming to speak a revision we
 /// haven't implemented is worse than negotiating down.
 const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18"];
-/// Groq's OpenAI-compatible endpoint. `aegis_run` is wired to it; the key comes
+/// Groq's OpenAI-compatible endpoint. `kedge_run` is wired to it; the key comes
 /// from `GROQ_API_KEY` at call time and is never persisted.
 const GROQ_API_BASE: &str = "https://api.groq.com/openai/v1";
 const DEFAULT_GROQ_MODEL: &str = "llama-3.3-70b-versatile";
@@ -59,9 +59,9 @@ type SharedOut = Arc<tokio::sync::Mutex<Stdout>>;
 
 /// Serve the MCP protocol on stdio until stdin closes.
 ///
-/// Requests are dispatched onto their own tasks, so a long `aegis_run` (up to a
+/// Requests are dispatched onto their own tasks, so a long `kedge_run` (up to a
 /// 120s wall-clock budget) can't stall `tools/list`, `ping`, or a concurrent
-/// `aegis_compact`. JSON-RPC correlates by `id`, so out-of-order replies are
+/// `kedge_compact`. JSON-RPC correlates by `id`, so out-of-order replies are
 /// expected and fine.
 pub async fn serve_stdio() -> Result<()> {
     let mut reader = BufReader::new(tokio::io::stdin()).lines();
@@ -74,7 +74,7 @@ pub async fn serve_stdio() -> Result<()> {
     let mut inflight: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
     eprintln!(
-        "aegis mcp: ready on stdio · tools: aegis_compact, aegis_audit, aegis_run \
+        "kedge mcp: ready on stdio · tools: kedge_compact, kedge_audit, kedge_run \
          (run needs GROQ_API_KEY)"
     );
 
@@ -111,7 +111,7 @@ pub async fn serve_stdio() -> Result<()> {
                 let result = json!({
                     "protocolVersion": version,
                     "capabilities": { "tools": {} },
-                    "serverInfo": { "name": "aegis", "version": env!("CARGO_PKG_VERSION") },
+                    "serverInfo": { "name": "kedge", "version": env!("CARGO_PKG_VERSION") },
                 });
                 reply(&out, id, Ok(result)).await?;
             }
@@ -136,7 +136,7 @@ pub async fn serve_stdio() -> Result<()> {
                 inflight.push(tokio::spawn(async move {
                     let result = handle_tool_call(&params).await;
                     if let Err(e) = reply(&out, id, Ok(result)).await {
-                        eprintln!("aegis mcp: failed to write response: {e}");
+                        eprintln!("kedge mcp: failed to write response: {e}");
                     }
                 }));
             }
@@ -160,7 +160,7 @@ pub async fn serve_stdio() -> Result<()> {
     // carries its own budget, so this wait is bounded by construction.
     for handle in inflight {
         if let Err(e) = handle.await {
-            eprintln!("aegis mcp: in-flight tool call did not finish cleanly: {e}");
+            eprintln!("kedge mcp: in-flight tool call did not finish cleanly: {e}");
         }
     }
     Ok(())
@@ -205,8 +205,8 @@ async fn reply(
 fn tool_specs() -> Value {
     json!([
         {
-            "name": "aegis_compact",
-            "description": "AST-aware token compaction. Parses a source file with Tree-sitter and returns its structural skeleton — signatures and types kept, function bodies elided — so a large file fits a token budget. Deterministic, no LLM. Pass `path` (read from disk, language auto-detected) OR `code` + `lang`. SIDE EFFECT: the token saving is journaled to the SQLite ledger at `db` (default ./aegis.sqlite, created if absent) so aegis_audit can report a cumulative total; set db to redirect it.",
+            "name": "kedge_compact",
+            "description": "AST-aware token compaction. Parses a source file with Tree-sitter and returns its structural skeleton — signatures and types kept, function bodies elided — so a large file fits a token budget. Deterministic, no LLM. Pass `path` (read from disk, language auto-detected) OR `code` + `lang`. SIDE EFFECT: the token saving is journaled to the SQLite ledger at `db` (default ./kedge.sqlite, created if absent) so kedge_audit can report a cumulative total; set db to redirect it.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -214,24 +214,24 @@ fn tool_specs() -> Value {
                     "code": { "type": "string", "description": "Raw source text (use together with `lang` instead of `path`)." },
                     "lang": { "type": "string", "enum": ["rust", "python", "javascript", "typescript", "go"], "description": "Force or declare the language." },
                     "max_tokens": { "type": "integer", "description": "Elide only enough bodies to fit this token budget. Omit for a full outline (all bodies elided)." },
-                    "db": { "type": "string", "description": "Ledger to journal the token savings into (default: $AEGIS_LEDGER_PATH, else ./aegis.sqlite). Point AEGIS_LEDGER_PATH at one absolute file to accumulate lifetime totals across every project." }
+                    "db": { "type": "string", "description": "Ledger to journal the token savings into (default: $KEDGE_LEDGER_PATH, else ./kedge.sqlite). Point KEDGE_LEDGER_PATH at one absolute file to accumulate lifetime totals across every project." }
                 }
             }
         },
         {
-            "name": "aegis_audit",
-            "description": "Forensic report from an Aegis SQLite ledger: total runs, tokens consumed, intercepted mutations (Shadow-Guard dry-runs), and — when pricing is supplied — a cost projection. Deterministic, no LLM.",
+            "name": "kedge_audit",
+            "description": "Forensic report from an Kedge SQLite ledger: total runs, tokens consumed, intercepted mutations (Shadow-Guard dry-runs), and — when pricing is supplied — a cost projection. Deterministic, no LLM.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "db": { "type": "string", "description": "Ledger path (default: $AEGIS_LEDGER_PATH, else ./aegis.sqlite)." },
+                    "db": { "type": "string", "description": "Ledger path (default: $KEDGE_LEDGER_PATH, else ./kedge.sqlite)." },
                     "price_per_1k": { "type": "number", "description": "USD per 1k tokens, to compute a cost figure." },
                     "runs_per_day": { "type": "integer", "description": "Expected runs/day, for a projection (needs price_per_1k)." }
                 }
             }
         },
         {
-            "name": "aegis_run",
+            "name": "kedge_run",
             "description": "Run a bounded, fully-journaled ReAct agent on a natural-language goal, driven by a Groq model. Enforces hard budgets (steps / tokens / wall-clock) and records every step to a SQLite ledger you can later replay or audit. Returns the final answer plus the full trajectory. The agent gets a `shell` tool scoped to `cwd`. Requires GROQ_API_KEY in the environment. SAFETY: defaults to mode=\"audit\" (Shadow-Guard dry-run) — mutating tool calls are intercepted and journaled, never executed. Pass mode=\"live\" only when the caller genuinely intends real side effects.",
             "inputSchema": {
                 "type": "object",
@@ -243,7 +243,7 @@ fn tool_specs() -> Value {
                     "max_steps": { "type": "integer", "description": "Max ReAct steps (default: 12)." },
                     "max_tokens": { "type": "integer", "description": "Max cumulative tokens (default: 100000)." },
                     "max_secs": { "type": "integer", "description": "Wall-clock budget in seconds (default: 120)." },
-                    "db": { "type": "string", "description": "Ledger path (default: $AEGIS_LEDGER_PATH, else ./aegis.sqlite)." }
+                    "db": { "type": "string", "description": "Ledger path (default: $KEDGE_LEDGER_PATH, else ./kedge.sqlite)." }
                 },
                 "required": ["goal"]
             }
@@ -260,9 +260,9 @@ async fn handle_tool_call(params: &Value) -> Value {
         .unwrap_or_else(|| json!({}));
 
     let outcome: Result<String> = match name {
-        "aegis_compact" => tool_compact(&args),
-        "aegis_audit" => tool_audit(&args),
-        "aegis_run" => tool_run(&args).await,
+        "kedge_compact" => tool_compact(&args),
+        "kedge_audit" => tool_audit(&args),
+        "kedge_run" => tool_run(&args).await,
         other => Err(anyhow::anyhow!("unknown tool `{other}`")),
     };
 
@@ -304,10 +304,10 @@ fn tool_compact(args: &Value) -> Result<String> {
         "Saved {saved} tokens ({pct:.0}%): {} → {} tokens, {} bodies elided",
         result.original_tokens, result.compacted_tokens, result.elided_bodies
     );
-    // Best-effort: journal this saving so `aegis_audit` can report a cumulative
+    // Best-effort: journal this saving so `kedge_audit` can report a cumulative
     // "tokens saved" total. A ledger problem never fails the compaction itself.
     let db =
-        sturdy_ledger::resolve_ledger_path(args.get("db").and_then(Value::as_str).map(Path::new));
+        kedge_ledger::resolve_ledger_path(args.get("db").and_then(Value::as_str).map(Path::new));
     let cumulative = match Ledger::open(&db) {
         Ok(ledger) => {
             let label = args.get("path").and_then(Value::as_str);
@@ -316,12 +316,12 @@ fn tool_compact(args: &Value) -> Result<String> {
                 result.compacted_tokens as u64,
                 label,
             ) {
-                eprintln!("aegis mcp: compaction not journaled ({e})");
+                eprintln!("kedge mcp: compaction not journaled ({e})");
             }
             ledger.compaction_totals().ok()
         }
         Err(e) => {
-            eprintln!("aegis mcp: compaction ledger unavailable ({e})");
+            eprintln!("kedge mcp: compaction ledger unavailable ({e})");
             None
         }
     };
@@ -336,7 +336,7 @@ fn tool_compact(args: &Value) -> Result<String> {
         "cumulative": cumulative.map(|t| json!({
             "compactions": t.compactions,
             "tokens_saved": t.tokens_saved,
-            "note": "running total in this ledger — see aegis_audit for the full report",
+            "note": "running total in this ledger — see kedge_audit for the full report",
         })),
         "text": result.text,
     });
@@ -345,15 +345,15 @@ fn tool_compact(args: &Value) -> Result<String> {
 
 fn tool_audit(args: &Value) -> Result<String> {
     let db =
-        sturdy_ledger::resolve_ledger_path(args.get("db").and_then(Value::as_str).map(Path::new));
+        kedge_ledger::resolve_ledger_path(args.get("db").and_then(Value::as_str).map(Path::new));
     let price = args.get("price_per_1k").and_then(Value::as_f64);
     let runs = args.get("runs_per_day").and_then(Value::as_u64);
-    let report = aegis_audit::AuditReport::from_ledger(&db, price, runs)
+    let report = kedge_audit::AuditReport::from_ledger(&db, price, runs)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(report.to_json())
 }
 
-/// The safety posture `aegis_run` executes under. Parsed from the `mode`
+/// The safety posture `kedge_run` executes under. Parsed from the `mode`
 /// argument; anything unrecognized is rejected rather than silently downgraded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunMode {
@@ -397,24 +397,24 @@ fn build_guarded_tools(
     mode: RunMode,
     base: Arc<dyn ToolExecutor>,
     ledger: Option<Arc<Ledger>>,
-    run_id: sturdy_core::TaskId,
+    run_id: kedge_core::TaskId,
 ) -> (
     Arc<dyn ToolExecutor>,
-    Option<Arc<aegis_audit::AuditExecutor>>,
+    Option<Arc<kedge_audit::AuditExecutor>>,
 ) {
     match mode {
         RunMode::Live => (base, None),
         RunMode::Deny => (
-            Arc::new(aegis_hitl::ApprovalGate::new(
+            Arc::new(kedge_hitl::ApprovalGate::new(
                 base,
-                Arc::new(aegis_hitl::DenyingApprover),
+                Arc::new(kedge_hitl::DenyingApprover),
                 ledger,
                 run_id,
             )),
             None,
         ),
         RunMode::Audit => {
-            let ae = Arc::new(aegis_audit::AuditExecutor::new(base, ledger, run_id));
+            let ae = Arc::new(kedge_audit::AuditExecutor::new(base, ledger, run_id));
             (ae.clone() as Arc<dyn ToolExecutor>, Some(ae))
         }
     }
@@ -449,7 +449,7 @@ async fn tool_run(args: &Value) -> Result<String> {
     let max_steps = args.get("max_steps").and_then(Value::as_u64).unwrap_or(12);
     let max_secs = args.get("max_secs").and_then(Value::as_u64).unwrap_or(120);
     let db =
-        sturdy_ledger::resolve_ledger_path(args.get("db").and_then(Value::as_str).map(Path::new));
+        kedge_ledger::resolve_ledger_path(args.get("db").and_then(Value::as_str).map(Path::new));
 
     let budget = Budget {
         max_tokens,
@@ -477,7 +477,7 @@ async fn tool_run(args: &Value) -> Result<String> {
     //
     // NOTE: `CliApprover` is deliberately unavailable here — it prints to stdout
     // and reads stdin, which are this process's JSON-RPC channel. Interactive
-    // approval belongs on the `WebhookApprover` + `aegis serve` path.
+    // approval belongs on the `WebhookApprover` + `kedge serve` path.
     let base: Arc<dyn ToolExecutor> = Arc::new(ShellTool {
         cwd: cwd.clone(),
         timeout: Duration::from_secs(30),
@@ -530,15 +530,15 @@ async fn tool_run(args: &Value) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kedge_core::{Observation, TaskId, ToolCall};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use sturdy_core::{Observation, TaskId, ToolCall};
 
     /// Stands in for the real `ShellTool` and records whether it actually ran.
     struct SpyTool(Arc<AtomicUsize>);
 
     #[async_trait::async_trait]
     impl ToolExecutor for SpyTool {
-        async fn execute(&self, _call: &ToolCall) -> sturdy_core::Result<Observation> {
+        async fn execute(&self, _call: &ToolCall) -> kedge_core::Result<Observation> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(Observation::ok("the underlying tool really executed"))
         }
@@ -623,8 +623,8 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|t| t["name"] == "aegis_run")
-            .expect("aegis_run is advertised");
+            .find(|t| t["name"] == "kedge_run")
+            .expect("kedge_run is advertised");
         assert_eq!(
             run["inputSchema"]["properties"]["mode"]["enum"],
             json!(["audit", "deny", "live"])
@@ -658,7 +658,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|t| t["name"] == "aegis_compact")
+            .find(|t| t["name"] == "kedge_compact")
             .unwrap();
         let desc = c["description"].as_str().unwrap();
         assert!(

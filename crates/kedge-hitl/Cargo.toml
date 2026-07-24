@@ -1,0 +1,24 @@
+[package]
+name = "kedge-hitl"
+description = "Human-in-the-loop approval gate — pause the ReAct loop on high-risk tools and ask a human."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kedge-core = { workspace = true }
+kedge-ledger = { workspace = true }
+kedge-audit = { path = "../kedge-audit", version = "0.1.0" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# For WebhookApprover — notify an external approver (Slack/dashboard) over HTTP.
+reqwest = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+serde_json = { workspace = true }

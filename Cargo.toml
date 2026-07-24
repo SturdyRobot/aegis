@@ -1,21 +1,21 @@
-# Aegis — a deterministic AI agent execution & verification harness.
-# The workspace root is also the `aegis` CLI binary.
+# Kedge — a deterministic AI agent execution & verification harness.
+# The workspace root is also the `kedge` CLI binary.
 [package]
-name = "aegis"
+name = "kedge"
 version = "0.1.0"
 edition = "2021"
 license = "BUSL-1.1"
 description = "A high-throughput, deterministic AI agent execution harness and verification engine."
-repository = "https://github.com/SturdyRobot/aegis"
-homepage = "https://github.com/SturdyRobot/aegis"
+repository = "https://github.com/SturdyRobot/kedge"
+homepage = "https://github.com/SturdyRobot/kedge"
 readme = "README.md"
 authors = ["Noel Jackson <noeljacksonjs@gmail.com>"]
 keywords = ["agent", "llm", "harness", "mcp", "ai"]
 categories = ["command-line-utilities", "development-tools"]
-default-run = "aegis"
+default-run = "kedge"
 
 [[bin]]
-name = "aegis"
+name = "kedge"
 path = "src/main.rs"
 
 [workspace]
@@ -23,8 +23,8 @@ members = ["crates/*"]
 # The eBPF kernel object is a no_std crate for the `bpfel-unknown-none` target and
 # needs a nightly toolchain + bpf-linker. Excluded so the normal workspace build
 # (and CI) stays kernel-free and cross-platform. Build it separately — see
-# crates/aegis-probe/BUILD_EBPF.md.
-exclude = ["crates/aegis-probe-ebpf", "crates/aegis-bridge", "crates/aegis-web"]
+# crates/kedge-probe/BUILD_EBPF.md.
+exclude = ["crates/kedge-probe-ebpf", "crates/kedge-bridge", "crates/kedge-web"]
 resolver = "2"
 
 [workspace.package]
@@ -32,16 +32,16 @@ version = "0.1.0"
 edition = "2021"
 license = "BUSL-1.1"
 authors = ["Noel Jackson <noeljacksonjs@gmail.com>"]
-repository = "https://github.com/SturdyRobot/aegis"
+repository = "https://github.com/SturdyRobot/kedge"
 
 # One source of truth for dependency versions across every crate.
 [workspace.dependencies]
-sturdy-core = { path = "crates/sturdy-core" }
-sturdy-compact = { path = "crates/sturdy-compact" }
-sturdy-mcp = { path = "crates/sturdy-mcp" }
-sturdy-exec = { path = "crates/sturdy-exec" }
-sturdy-ledger = { path = "crates/sturdy-ledger" }
-sturdy-llm = { path = "crates/sturdy-llm" }
+kedge-core = { path = "crates/kedge-core", version = "0.1.0" }
+kedge-compact = { path = "crates/kedge-compact", version = "0.1.0" }
+kedge-mcp = { path = "crates/kedge-mcp", version = "0.1.0" }
+kedge-exec = { path = "crates/kedge-exec", version = "0.1.0" }
+kedge-ledger = { path = "crates/kedge-ledger", version = "0.1.0" }
+kedge-llm = { path = "crates/kedge-llm", version = "0.1.0" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "io-util", "io-std", "sync", "fs", "net", "signal"] }
 serde = { version = "1", features = ["derive"] }
@@ -69,12 +69,12 @@ predicates = "3"
 tempfile = "3"
 
 [dependencies]
-sturdy-core = { workspace = true }
-sturdy-compact = { workspace = true }
-sturdy-mcp = { workspace = true }
-sturdy-exec = { workspace = true }
-sturdy-ledger = { workspace = true }
-sturdy-llm = { workspace = true }
+kedge-core = { workspace = true }
+kedge-compact = { workspace = true }
+kedge-mcp = { workspace = true }
+kedge-exec = { workspace = true }
+kedge-ledger = { workspace = true }
+kedge-llm = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -86,10 +86,10 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 indicatif = { workspace = true }
 toml = { workspace = true }
-aegis-audit = { path = "crates/aegis-audit" }
-aegis-hitl = { path = "crates/aegis-hitl" }
-aegis-eval = { path = "crates/aegis-eval" }
-aegis-server = { path = "crates/aegis-server" }
+kedge-audit = { path = "crates/kedge-audit", version = "0.1.0" }
+kedge-hitl = { path = "crates/kedge-hitl", version = "0.1.0" }
+kedge-eval = { path = "crates/kedge-eval", version = "0.1.0" }
+kedge-server = { path = "crates/kedge-server", version = "0.1.0" }
 
 # Optional OpenTelemetry OTLP export — pulled in only under the `otel` feature.
 opentelemetry = { version = "0.32", optional = true }

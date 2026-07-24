@@ -38,15 +38,15 @@ jobs:
       # rusqlite is vendored (`bundled`), so this compiles SQLite from source —
       # no system libsqlite3 needed on any runner.
       - name: Build
-        run: cargo build --release --bin aegis --target ${{ matrix.target }}
+        run: cargo build --release --bin kedge --target ${{ matrix.target }}
 
       - name: Package
         shell: bash
         run: |
-          bin="target/${{ matrix.target }}/release/aegis${{ matrix.ext }}"
+          bin="target/${{ matrix.target }}/release/kedge${{ matrix.ext }}"
           test -f "$bin" || { echo "::error::binary not found at $bin"; exit 1; }
           mkdir -p dist
-          name="aegis-${{ github.ref_name }}-${{ matrix.target }}"
+          name="kedge-${{ github.ref_name }}-${{ matrix.target }}"
           # Ship the license with the binary: BSL is source-available, not OSI
           # open source, and recipients need the terms in the same archive.
           cp LICENSE README.md "$bin" dist/ 2>/dev/null || cp "$bin" dist/
@@ -59,7 +59,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: aegis-${{ matrix.target }}
+          name: kedge-${{ matrix.target }}
           path: |
             *.tar.gz
             *.zip
@@ -90,17 +90,17 @@ jobs:
           body: |
             ## Install
 
-            Download the archive for your platform below, extract, and put `aegis` on your `PATH`.
+            Download the archive for your platform below, extract, and put `kedge` on your `PATH`.
             Verify against `SHA256SUMS` before running.
 
             From source:
 
             ```bash
-            cargo install --git https://github.com/SturdyRobot/aegis --bin aegis
+            cargo install --git https://github.com/SturdyRobot/kedge --bin kedge
             ```
 
             ## Licensing
 
-            Aegis is released under the **Business Source License 1.1** — free for
+            Kedge is released under the **Business Source License 1.1** — free for
             non-commercial use, evaluation, and internal non-revenue use. Commercial
             use requires a license. Converts to Apache 2.0 on the Change Date.

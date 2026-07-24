@@ -42,7 +42,7 @@ jobs:
 
   # `cargo *--workspace` skips the excluded crates (see root Cargo.toml), so the
   # wasm demo — which ships on the public site — would rot silently. This job is
-  # the guard: sturdy-core must stay wasm-clean, and aegis-web must still build.
+  # the guard: kedge-core must stay wasm-clean, and kedge-web must still build.
   wasm:
     name: wasm · core stays portable
     runs-on: ubuntu-latest
@@ -61,14 +61,14 @@ jobs:
       # Guards the target-gated tokio/uuid deps and web-time Instant: if someone
       # reintroduces a native-only dependency into core, this fails here rather
       # than in the browser.
-      - name: sturdy-core builds for wasm32
-        run: cargo build -p sturdy-core --target wasm32-unknown-unknown
+      - name: kedge-core builds for wasm32
+        run: cargo build -p kedge-core --target wasm32-unknown-unknown
 
-      - name: aegis-web (excluded crate) builds for wasm32
-        run: cargo build --manifest-path crates/aegis-web/Cargo.toml --target wasm32-unknown-unknown --release
+      - name: kedge-web (excluded crate) builds for wasm32
+        run: cargo build --manifest-path crates/kedge-web/Cargo.toml --target wasm32-unknown-unknown --release
 
-      - name: aegis-web clippy
-        run: cargo clippy --manifest-path crates/aegis-web/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
+      - name: kedge-web clippy
+        run: cargo clippy --manifest-path crates/kedge-web/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
 
   # Supply chain: fail the build on a RustSec advisory against anything in
   # Cargo.lock. Unmaintained-crate warnings are reported but don't fail.

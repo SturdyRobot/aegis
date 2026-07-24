@@ -1,0 +1,23 @@
+[package]
+name = "kedge-mcp"
+description = "Native Model Context Protocol (MCP) JSON-RPC 2.0 client over stdio and streamable HTTP."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kedge-core = { workspace = true }
+kedge-ledger = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+# HTTP / SSE transport for remote MCP servers.
+reqwest = { workspace = true, features = ["stream"] }
+futures-util = "0.3"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["net"] }
