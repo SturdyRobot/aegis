@@ -1,0 +1,20 @@
+[package]
+name = "kedge-mesh"
+description = "Bounded Tokio subagent supervision and multi-agent orchestration for Kedge."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kedge-core = { workspace = true }
+kedge-ledger = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+serde_json = { workspace = true }

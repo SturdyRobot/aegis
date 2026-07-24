@@ -3,158 +3,6 @@
 version = 4
 
 [[package]]
-name = "aegis"
-version = "0.1.0"
-dependencies = [
- "aegis-audit",
- "aegis-eval",
- "aegis-hitl",
- "aegis-server",
- "anyhow",
- "assert_cmd",
- "async-trait",
- "clap",
- "indicatif",
- "nix",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "predicates",
- "serde",
- "serde_json",
- "sturdy-compact",
- "sturdy-core",
- "sturdy-exec",
- "sturdy-ledger",
- "sturdy-llm",
- "sturdy-mcp",
- "tempfile",
- "tokio",
- "toml",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "aegis-audit"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "serde",
- "serde_json",
- "sturdy-core",
- "sturdy-ledger",
- "tempfile",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "aegis-cache"
-version = "0.1.0"
-dependencies = [
- "rusqlite",
- "sha2",
- "sturdy-compact",
- "tempfile",
- "thiserror 2.0.19",
- "tracing",
-]
-
-[[package]]
-name = "aegis-eval"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sturdy-core",
- "sturdy-ledger",
- "tempfile",
- "thiserror 2.0.19",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "aegis-hitl"
-version = "0.1.0"
-dependencies = [
- "aegis-audit",
- "async-trait",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sturdy-core",
- "sturdy-ledger",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "aegis-mesh"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "serde",
- "serde_json",
- "sturdy-core",
- "sturdy-ledger",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "aegis-policy"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "regex",
- "serde",
- "serde_json",
- "sturdy-core",
- "thiserror 2.0.19",
- "tokio",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "aegis-probe"
-version = "0.1.0"
-dependencies = [
- "aya",
- "aya-log",
- "serde",
- "sturdy-core",
- "sturdy-ledger",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "aegis-server"
-version = "0.1.0"
-dependencies = [
- "aegis-hitl",
- "axum",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sturdy-core",
- "sturdy-ledger",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1147,6 +995,243 @@ dependencies = [
 ]
 
 [[package]]
+name = "kedge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "async-trait",
+ "clap",
+ "indicatif",
+ "kedge-audit",
+ "kedge-compact",
+ "kedge-core",
+ "kedge-eval",
+ "kedge-exec",
+ "kedge-hitl",
+ "kedge-ledger",
+ "kedge-llm",
+ "kedge-mcp",
+ "kedge-server",
+ "nix",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "predicates",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "kedge-audit"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "kedge-core",
+ "kedge-ledger",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "kedge-cache"
+version = "0.1.0"
+dependencies = [
+ "kedge-compact",
+ "rusqlite",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tracing",
+]
+
+[[package]]
+name = "kedge-compact"
+version = "0.1.0"
+dependencies = [
+ "kedge-core",
+ "serde",
+ "thiserror 2.0.19",
+ "tracing",
+ "tree-sitter",
+ "tree-sitter-go",
+ "tree-sitter-javascript",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
+]
+
+[[package]]
+name = "kedge-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "uuid",
+ "web-time",
+]
+
+[[package]]
+name = "kedge-eval"
+version = "0.1.0"
+dependencies = [
+ "kedge-core",
+ "kedge-ledger",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "kedge-exec"
+version = "0.1.0"
+dependencies = [
+ "kedge-core",
+ "nix",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "kedge-hitl"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "kedge-audit",
+ "kedge-core",
+ "kedge-ledger",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "kedge-ledger"
+version = "0.1.0"
+dependencies = [
+ "kedge-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tracing",
+]
+
+[[package]]
+name = "kedge-llm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "kedge-core",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "kedge-mcp"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "kedge-core",
+ "kedge-ledger",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "kedge-mesh"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "kedge-core",
+ "kedge-ledger",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "kedge-policy"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "kedge-core",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "kedge-probe"
+version = "0.1.0"
+dependencies = [
+ "aya",
+ "aya-log",
+ "kedge-core",
+ "kedge-ledger",
+ "serde",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "kedge-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "kedge-core",
+ "kedge-hitl",
+ "kedge-ledger",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2005,91 +2090,6 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
-
-[[package]]
-name = "sturdy-compact"
-version = "0.1.0"
-dependencies = [
- "serde",
- "sturdy-core",
- "thiserror 2.0.19",
- "tracing",
- "tree-sitter",
- "tree-sitter-go",
- "tree-sitter-javascript",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
-]
-
-[[package]]
-name = "sturdy-core"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
- "uuid",
- "web-time",
-]
-
-[[package]]
-name = "sturdy-exec"
-version = "0.1.0"
-dependencies = [
- "nix",
- "serde",
- "serde_json",
- "sturdy-core",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "sturdy-ledger"
-version = "0.1.0"
-dependencies = [
- "rusqlite",
- "serde",
- "serde_json",
- "sturdy-core",
- "thiserror 2.0.19",
- "tracing",
-]
-
-[[package]]
-name = "sturdy-llm"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sturdy-core",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "sturdy-mcp"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "futures-util",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sturdy-core",
- "sturdy-ledger",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
-]
 
 [[package]]
 name = "subtle"

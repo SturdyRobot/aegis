@@ -1,0 +1,21 @@
+[package]
+name = "kedge-audit"
+description = "Shadow-Guard dry-run interceptor + forensic ROI/security report for Kedge."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kedge-core = { workspace = true }
+kedge-ledger = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+tempfile = { workspace = true }

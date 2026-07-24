@@ -1,0 +1,23 @@
+# Python bindings for Kedge (the `kedge_rt` module). NOT part of the Kedge
+# workspace (excluded in the root Cargo.toml) — it's a cdylib built into a Python
+# wheel with maturin, and building it requires a Python interpreter. Build with:
+#   maturin develop      (into the active venv)   or   maturin build --release
+[package]
+name = "kedge-bridge"
+version = "0.1.0"
+edition = "2021"
+license = "BUSL-1.1"
+publish = false
+
+[lib]
+name = "kedge_rt"
+crate-type = ["cdylib"]
+
+[dependencies]
+# abi3-py39: build against the stable ABI so the wheel works on CPython ≥3.9
+# (including brand-new releases) without pinning to a pyo3 that knows that version.
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
+kedge-compact = { path = "../kedge-compact" }
+kedge-policy = { path = "../kedge-policy" }
+kedge-audit = { path = "../kedge-audit" }
+sha2 = "0.10"

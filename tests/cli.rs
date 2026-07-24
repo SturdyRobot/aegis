@@ -1,17 +1,17 @@
-//! End-to-end tests of the `aegis` binary, locking the CLI surface.
+//! End-to-end tests of the `kedge` binary, locking the CLI surface.
 
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
 use tempfile::tempdir;
 
-fn aegis() -> Command {
-    Command::cargo_bin("aegis").unwrap()
+fn kedge() -> Command {
+    Command::cargo_bin("kedge").unwrap()
 }
 
 #[test]
 fn help_lists_subcommands() {
-    aegis()
+    kedge()
         .arg("--help")
         .assert()
         .success()
@@ -30,7 +30,7 @@ fn compact_rust_file_elides_bodies() {
         "pub fn big() -> i32 {\n    let mut a = 0;\n    for i in 0..100 { a += i; }\n    a\n}\n",
     )
     .unwrap();
-    aegis()
+    kedge()
         .arg("compact")
         .arg(&f)
         .assert()
@@ -50,7 +50,7 @@ fn compact_detects_python_from_extension() {
         "def big(n):\n    total = 0\n    for i in range(n):\n        total += i\n    return total\n",
     )
     .unwrap();
-    aegis()
+    kedge()
         .arg("compact")
         .arg(&f)
         .assert()
@@ -64,7 +64,7 @@ fn compact_unknown_extension_errors() {
     let dir = tempdir().unwrap();
     let f = dir.path().join("data.txt");
     fs::write(&f, "hello").unwrap();
-    aegis()
+    kedge()
         .arg("compact")
         .arg(&f)
         .assert()
@@ -76,7 +76,7 @@ fn compact_unknown_extension_errors() {
 fn run_json_finishes_and_journals() {
     let dir = tempdir().unwrap();
     let db = dir.path().join("l.sqlite");
-    let assert = aegis()
+    let assert = kedge()
         .args(["run", "check the toolchain", "--json", "--db"])
         .arg(&db)
         .assert()
@@ -89,7 +89,7 @@ fn run_json_finishes_and_journals() {
 
     // The same run is now replayable from the ledger.
     let task_id = v["task_id"].as_str().unwrap();
-    aegis()
+    kedge()
         .args(["replay", task_id, "--db"])
         .arg(&db)
         .assert()
@@ -100,7 +100,7 @@ fn run_json_finishes_and_journals() {
 #[test]
 fn verify_non_project_fails() {
     let dir = tempdir().unwrap();
-    aegis()
+    kedge()
         .arg("verify")
         .arg(dir.path())
         .assert()
@@ -112,7 +112,7 @@ fn verify_non_project_fails() {
 fn ledger_list_on_empty_db() {
     let dir = tempdir().unwrap();
     let db = dir.path().join("l.sqlite");
-    aegis()
+    kedge()
         .args(["ledger", "list", "--db"])
         .arg(&db)
         .assert()
@@ -124,7 +124,7 @@ fn ledger_list_on_empty_db() {
 fn replay_malformed_id_errors() {
     let dir = tempdir().unwrap();
     let db = dir.path().join("l.sqlite");
-    aegis()
+    kedge()
         .args(["replay", "not-a-uuid", "--db"])
         .arg(&db)
         .assert()
@@ -146,11 +146,11 @@ fn mcp_writes_responses_for_calls_in_flight_when_stdin_closes() {
         r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
         serde_json::json!({
             "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-            "params": { "name": "aegis_audit", "arguments": { "db": db.to_str().unwrap() } }
+            "params": { "name": "kedge_audit", "arguments": { "db": db.to_str().unwrap() } }
         })
     );
 
-    let out = aegis().arg("mcp").write_stdin(requests).assert().success();
+    let out = kedge().arg("mcp").write_stdin(requests).assert().success();
     let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
 
     let ids: Vec<u64> = stdout
@@ -174,7 +174,7 @@ fn mcp_writes_responses_for_calls_in_flight_when_stdin_closes() {
 /// error, not a silent success.
 #[test]
 fn mcp_rejects_tool_traffic_before_initialize() {
-    let out = aegis()
+    let out = kedge()
         .arg("mcp")
         .write_stdin("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n")
         .assert()

@@ -4,6 +4,6 @@
 [toolchain]
 channel = "stable"
 components = ["rustfmt", "clippy"]
-# `aegis-web` targets the browser; keeping it here means `cargo build
+# `kedge-web` targets the browser; keeping it here means `cargo build
 # --target wasm32-unknown-unknown` works after a plain `rustup` bootstrap.
 targets = ["wasm32-unknown-unknown"]
