@@ -34,11 +34,12 @@ classification, the policy matcher, and the forensic audit as an **abi3 wheel**
 (one wheel, CPython ≥3.9). Verified end-to-end with a real `import aegis_rt`.
 *Follow-on:* async agent execution + subagent supervision from Python.
 
-### 🚀 2. WebAssembly (`aegis-web`) — DO NEXT
-Powers the live in-browser terminal on **sturdyrobot.io** — the visual showpiece
-for recruiters, investors, and engineers. Needs `wasm-pack` + making `aegis-core`
-wasm-clean (feature-gate tokio/uuid, a wasm reasoner, an in-memory ledger). The
-highest-leverage item for the hiring goal specifically (click-and-watch demo).
+### ✅ 2. WebAssembly (`aegis-web`) — SHIPPED
+Live on **sturdyrobot.io** (the 🦀 Aegis icon), running the real `sturdy-core`
+engine client-side at ~137 KB. Making core wasm-clean meant target-gating
+tokio/uuid (dropping `net` to avoid `mio`), swapping `std::time::Instant` for
+`web-time::Instant` (std's panics on wasm), and gating the wall-clock timeout.
+A CI job now builds core + `aegis-web` for `wasm32` so it can't silently rot.
 
 ### ⏳ 3. TypeScript (`napi-rs`) — POST-LAUNCH
 `npm install aegis-rt`. TypeScript/Node.js is the second-largest AI ecosystem
@@ -58,6 +59,28 @@ additional code**. The daemon covers every other language for free.
 ---
 
 ## Other parked
+
+### ⏳ Test suite is timing/port-sensitive under load
+`sturdy-exec`, `sturdy-mcp`, `aegis-server` and `aegis-probe`'s integration test
+bind ports, spawn subprocesses, and assert on timeouts. Under a loaded machine
+(e.g. a parallel `cargo build` running alongside) six targets fail; each passes
+in isolation. On a contended CI runner this reads as flaky.
+
+Fix properly rather than by bumping sleeps: inject the clock/timeout instead of
+asserting against wall time, and bind port 0 everywhere rather than fixed ports.
+Until then, prefer `cargo test --workspace -- --test-threads=…` on constrained
+machines.
+
+### ⏳ Ledger writes block the async ReAct loop
+`StepObserver::on_step` performs a synchronous SQLite insert from inside the
+engine loop. This is currently **deliberate** — see the design note on
+`LedgerObserver` — because buffering the write would open a lost-step window on
+crash, which is the exact failure the ledger exists to prevent. Mitigated with
+WAL + `busy_timeout` + `synchronous=NORMAL`.
+
+Revisit only when a real workload proves it's the bottleneck (many agents sharing
+one ledger under `aegis-mesh`). The right answer then is a per-agent ledger or a
+*durable* write-ahead queue — not a fire-and-forget channel.
 
 ### 🛑 aegis-zk — SP1 zkVM execution proofs
 Zero-knowledge proof of policy-compliant execution. Skip until there's a real SP1
