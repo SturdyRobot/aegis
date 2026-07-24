@@ -29,8 +29,9 @@ use js_sys::Function;
 use wasm_bindgen::prelude::*;
 
 use kedge_core::{
-    Action, Budget, Decision, Observation, Outcome, ReActEngine, Reasoner, Result as CoreResult,
-    Step, StepObserver, Task, Thought, ToolCall, ToolExecutor, Trajectory,
+    classify, Action, Budget, Decision, Observation, Outcome, ReActEngine, Reasoner,
+    Result as CoreResult, Step, StepObserver, Task, Thought, ToolCall, ToolExecutor, ToolSafety,
+    Trajectory,
 };
 
 /// Install the panic hook once so a Rust panic surfaces as `console.error`
@@ -38,6 +39,37 @@ use kedge_core::{
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
+}
+
+/// Shadow-Guard, live in the browser. Runs the **real** `kedge_core::classify`
+/// — the exact fail-safe classifier the audit executor uses — against whatever
+/// the visitor types, and reports whether Kedge would let an agent run it or
+/// intercept it. Returns JSON: `{command, verb, verdict, risk, intercepted}`.
+///
+/// This is deliberately not scripted: the output is computed from the input, so
+/// a skeptic can type anything (including their own destructive commands) and
+/// watch the actual safety logic decide.
+#[wasm_bindgen]
+pub fn classify_command(command: &str) -> String {
+    let verb = command
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .find(|s| !s.is_empty())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    let (verdict, risk, intercepted) = match classify(command) {
+        ToolSafety::ReadOnly => ("allowed", "none", false),
+        ToolSafety::Mutating { risk } => ("intercepted", risk.as_str(), true),
+    };
+
+    format!(
+        r#"{{"command":{},"verb":{},"verdict":"{}","risk":"{}","intercepted":{}}}"#,
+        serde_json::to_string(command).unwrap_or_else(|_| "\"\"".into()),
+        serde_json::to_string(&verb).unwrap_or_else(|_| "\"\"".into()),
+        verdict,
+        risk,
+        intercepted
+    )
 }
 
 /// A browser-hosted Kedge agent. Thin wrapper that wires the real engine to a
